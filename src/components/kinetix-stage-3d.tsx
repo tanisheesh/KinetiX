@@ -792,15 +792,17 @@ export default function KinetiXStage3D({
     );
     scene.add(trailLine);
 
+    const initAspect = container.clientWidth / Math.max(1, container.clientHeight);
     const camSpherical = {
-      radius: 10.8,
+      radius: initAspect < 0.85 ? 14.8 : initAspect < 1.15 ? 12.4 : 10.8,
       theta: -0.16,
-      phi: 0.9,
+      phi: initAspect < 0.85 ? 0.82 : 0.9,
       target: new THREE.Vector3(-0.5, 0.3, 0.1),
     };
     let isOrbiting = false;
     let isPanning = false;
     let prevMouse = { x: 0, y: 0 };
+    let prevPinchDist: number | null = null;
     let activeDrag: { type: "obstacle" | "cylinder"; id?: string } | null = null;
 
     const raycaster = new THREE.Raycaster();
@@ -929,14 +931,44 @@ export default function KinetiXStage3D({
 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      camSpherical.radius = Math.max(3.5, Math.min(18, camSpherical.radius + e.deltaY * 0.008));
+      camSpherical.radius = Math.max(3.5, Math.min(20, camSpherical.radius + e.deltaY * 0.008));
+    };
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        isOrbiting = false;
+        activeDrag = null;
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        prevPinchDist = Math.hypot(dx, dy);
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 2 && prevPinchDist !== null) {
+        e.preventDefault();
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const dist = Math.hypot(dx, dy);
+        const delta = prevPinchDist - dist;
+        camSpherical.radius = Math.max(4.0, Math.min(20, camSpherical.radius + delta * 0.035));
+        prevPinchDist = dist;
+      }
+    };
+
+    const onTouchEnd = () => {
+      prevPinchDist = null;
     };
 
     const dom = renderer.domElement;
+    dom.style.touchAction = "none";
     dom.addEventListener("pointerdown", onPointerDown);
     window.addEventListener("pointermove", onPointerMove);
     window.addEventListener("pointerup", onPointerUp);
     dom.addEventListener("wheel", onWheel, { passive: false });
+    dom.addEventListener("touchstart", onTouchStart, { passive: true });
+    dom.addEventListener("touchmove", onTouchMove, { passive: false });
+    dom.addEventListener("touchend", onTouchEnd);
     dom.addEventListener("contextmenu", (e) => e.preventDefault());
 
     let prevObsJson = "";
@@ -1651,7 +1683,9 @@ export default function KinetiXStage3D({
           )
         );
       } else if (cur.cameraMode === "top") {
-        camera.position.lerp(new THREE.Vector3(-0.5, 14.2, 0.01), dt * 6);
+        const aspect = container.clientWidth / Math.max(1, container.clientHeight);
+        const topHeight = aspect < 0.85 ? 19.5 : aspect < 1.15 ? 16.5 : 14.2;
+        camera.position.lerp(new THREE.Vector3(-0.5, topHeight, 0.01), dt * 6);
         camera.lookAt(new THREE.Vector3(-0.5, 0, 0));
       } else {
         const cx =
@@ -1673,12 +1707,15 @@ export default function KinetiXStage3D({
       renderer.clear();
       renderer.render(scene, camera);
 
-      if (cur.pipEnabled && cur.cameraMode !== "pov" && fullW > 480) {
-        const pipW = 196;
-        const pipH = 128;
-        const pipX = fullW - pipW - 12;
-        const pipY = 12;
+      if (cur.pipEnabled && cur.cameraMode !== "pov" && fullW > 320) {
+        const isSmall = fullW < 640;
+        const pipW = isSmall ? 132 : 196;
+        const pipH = isSmall ? 88 : 128;
+        const pipX = fullW - pipW - (isSmall ? 8 : 12);
+        const pipY = isSmall ? 8 : 12;
 
+        pipCamera.aspect = pipW / pipH;
+        pipCamera.updateProjectionMatrix();
         pipCamera.position.set(
           rp.x + Math.cos(rp.heading) * 0.68,
           0.68,
@@ -1945,8 +1982,8 @@ export default function KinetiXStage3D({
   }, [onTelemetryUpdate, setCylinderPos, setObstacles, setSelectedPart]);
 
   return (
-    <div className="relative w-full h-full overflow-hidden bg-[#0a0a0a]">
-      <div ref={mountRef} className="w-full h-full" />
+    <div className="relative w-full h-full overflow-hidden bg-[#0a0a0a] touch-none">
+      <div ref={mountRef} className="w-full h-full touch-none" />
 
       {/* Brutalist 3D World Callout Tags */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
@@ -1956,13 +1993,13 @@ export default function KinetiXStage3D({
             style={{
               transform: `translate(-50%, -100%) translate(${t.x}px, ${t.y}px)`,
             }}
-            className={`absolute bg-[#080808]/90 border ${t.border} px-2 py-1 font-mono text-[10px] leading-tight whitespace-nowrap`}
+            className={`absolute bg-[#080808]/90 border ${t.border} px-1.5 py-0.5 sm:px-2 sm:py-1 font-mono text-[8.5px] sm:text-[10px] leading-tight whitespace-nowrap`}
           >
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1 sm:gap-1.5">
               <span className={`${t.accent} font-bold`}>[{t.code}]</span>
               <span className="text-[#f2efe9] font-bold">{t.title}</span>
             </div>
-            <div className="text-[#88857e] text-[9px]">{t.sub}</div>
+            <div className="hidden sm:block text-[#88857e] text-[9px]">{t.sub}</div>
           </div>
         ))}
       </div>
@@ -1979,7 +2016,7 @@ export default function KinetiXStage3D({
                 style={{
                   transform: `translate(-50%, -50%) translate(${t.x}px, ${t.y}px)`,
                 }}
-                className={`pointer-events-auto absolute px-2.5 py-1 border font-mono text-[10px] text-left transition ${
+                className={`pointer-events-auto absolute px-1.5 py-0.5 sm:px-2.5 sm:py-1 border font-mono text-[8.5px] sm:text-[10px] text-left transition ${
                   active
                     ? "bg-[#ffb300] text-[#080808] border-[#f2efe9] font-bold z-30"
                     : "bg-[#080808]/95 text-[#f2efe9] border-[#ffb300] hover:bg-[#151515] z-20"
@@ -1988,7 +2025,9 @@ export default function KinetiXStage3D({
                 <div className="font-bold whitespace-nowrap">
                   [{t.code}] {t.title}
                 </div>
-                <div className={active ? "text-[#080808]" : "text-[#88857e]"}>{t.sub}</div>
+                <div className={`hidden sm:block ${active ? "text-[#080808]" : "text-[#88857e]"}`}>
+                  {t.sub}
+                </div>
               </button>
             );
           })}
@@ -2011,7 +2050,7 @@ export default function KinetiXStage3D({
             >
               <div
                 style={{ backgroundColor: b.color }}
-                className="text-[9px] font-mono font-bold text-[#080808] px-1 py-0.5 whitespace-nowrap -mt-4 inline-block"
+                className="text-[8px] sm:text-[9px] font-mono font-bold text-[#080808] px-1 py-0.5 whitespace-nowrap -mt-4 inline-block"
               >
                 {b.label}
               </div>
@@ -2022,27 +2061,27 @@ export default function KinetiXStage3D({
 
       {/* PiP Onboard Nose-Cam Frame Overlay */}
       {pipEnabled && cameraMode !== "pov" && (
-        <div className="pointer-events-none hidden sm:block absolute bottom-[12px] right-[12px] w-[196px] h-[128px] border-2 border-[#ffb300]">
-          <div className="bg-[#080808]/90 border-b border-[#ffb300] px-2 py-0.5 flex items-center justify-between font-mono text-[9px]">
-            <span className="text-[#ffb300] font-bold">NOSE_CAM // HC-SR04 POV</span>
-            <span className="text-[#00e676]">● LIVE</span>
+        <div className="pointer-events-none absolute bottom-[8px] right-[8px] sm:bottom-[12px] sm:right-[12px] w-[132px] h-[88px] sm:w-[196px] sm:h-[128px] border-2 border-[#ffb300]">
+          <div className="bg-[#080808]/90 border-b border-[#ffb300] px-1.5 sm:px-2 py-0.5 flex items-center justify-between font-mono text-[8px] sm:text-[9px]">
+            <span className="text-[#ffb300] font-bold truncate">NOSE_CAM // POV</span>
+            <span className="text-[#00e676] shrink-0">● LIVE</span>
           </div>
           <div className="absolute inset-0 flex items-center justify-center">
-            <div className="w-5 h-5 border border-[#ffb300]/50" />
+            <div className="w-4 h-4 sm:w-5 sm:h-5 border border-[#ffb300]/50" />
           </div>
         </div>
       )}
 
       {/* Wall Draw Mode Active Banner */}
       {wallDrawMode && (
-        <div className="pointer-events-none absolute top-3 left-1/2 -translate-x-1/2 bg-[#00e5ff] text-[#080808] px-3 py-1 font-mono text-[11px] font-bold tracking-wider uppercase border border-[#f2efe9]">
-          MAZE BUILDER ACTIVE // CLICK ANYWHERE ON ARENA FLOOR TO PLACE BARRIER WALL
+        <div className="pointer-events-none absolute top-2 sm:top-3 left-2 right-2 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 bg-[#00e5ff] text-[#080808] px-2.5 py-1 font-mono text-[9.5px] sm:text-[11px] font-bold tracking-wider uppercase border border-[#f2efe9] text-center">
+          MAZE BUILDER ACTIVE // TAP OR CLICK FLOOR TO PLACE BARRIER WALL
         </div>
       )}
 
       {/* Drag Status Banner */}
       {dragNotice && (
-        <div className="pointer-events-none absolute top-3 left-1/2 -translate-x-1/2 bg-[#ffb300] text-[#080808] px-3 py-1 font-mono text-[11px] font-bold tracking-wider uppercase border border-[#f2efe9]">
+        <div className="pointer-events-none absolute top-2 sm:top-3 left-2 right-2 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 bg-[#ffb300] text-[#080808] px-2.5 py-1 font-mono text-[9.5px] sm:text-[11px] font-bold tracking-wider uppercase border border-[#f2efe9] text-center">
           {dragNotice}
         </div>
       )}

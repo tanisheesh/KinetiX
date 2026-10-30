@@ -119,47 +119,49 @@ export default function HardwarePage() {
         {/* ================= 1. INTERACTIVE 6-MODULE DATASHEET INSPECTOR ================= */}
         <section className="grid grid-cols-1 lg:grid-cols-12 border border-[#222220] bg-[#0e0e0e]">
           {/* Left 4 Cols: Module Selector List */}
-          <div className="lg:col-span-4 border-b lg:border-b-0 lg:border-r border-[#222220] divide-y divide-[#222220]">
+          <div className="lg:col-span-4 border-b lg:border-b-0 lg:border-r border-[#222220]">
             <div className="panel-header">
               <span>SUBSYSTEM SELECTOR [01–06]</span>
               <span>MECHATRONIC BOM</span>
             </div>
-            {HARDWARE_MODULES.map((m) => {
-              const active = m.id === selectedId;
-              return (
-                <button
-                  key={m.id}
-                  onClick={() => setSelectedId(m.id)}
-                  className={`w-full p-4 text-left transition flex items-center justify-between cursor-pointer ${
-                    active
-                      ? "bg-[#ffb300] text-[#080808]"
-                      : "bg-[#0e0e0e] text-[#f2efe9] hover:bg-[#141413]"
-                  }`}
-                >
-                  <div>
-                    <div
-                      className={`font-mono text-[10px] ${
-                        active ? "text-[#080808] font-bold" : "text-[#ffb300]"
-                      }`}
-                    >
-                      [{m.code}] // {m.category}
-                    </div>
-                    <div className="font-display font-black text-lg uppercase mt-0.5">
-                      {m.name}
-                    </div>
-                  </div>
-                  <span
-                    className={`font-mono text-[10px] px-2 py-0.5 border ${
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 divide-y sm:divide-y-0 lg:divide-y divide-[#222220]">
+              {HARDWARE_MODULES.map((m) => {
+                const active = m.id === selectedId;
+                return (
+                  <button
+                    key={m.id}
+                    onClick={() => setSelectedId(m.id)}
+                    className={`w-full p-3.5 sm:p-4 border-b sm:border-r lg:border-r-0 border-[#222220] text-left transition flex items-center justify-between gap-2 cursor-pointer ${
                       active
-                        ? "border-[#080808] text-[#080808] font-bold"
-                        : "border-[#3a3834] text-[#88857e]"
+                        ? "bg-[#ffb300] text-[#080808]"
+                        : "bg-[#0e0e0e] text-[#f2efe9] hover:bg-[#141413]"
                     }`}
                   >
-                    {m.busTag}
-                  </span>
-                </button>
-              );
-            })}
+                    <div className="min-w-0">
+                      <div
+                        className={`font-mono text-[10px] truncate ${
+                          active ? "text-[#080808] font-bold" : "text-[#ffb300]"
+                        }`}
+                      >
+                        [{m.code}] // {m.category}
+                      </div>
+                      <div className="font-display font-black text-base sm:text-lg uppercase mt-0.5 truncate">
+                        {m.name}
+                      </div>
+                    </div>
+                    <span
+                      className={`font-mono text-[10px] px-2 py-0.5 border shrink-0 ${
+                        active
+                          ? "border-[#080808] text-[#080808] font-bold"
+                          : "border-[#3a3834] text-[#88857e]"
+                      }`}
+                    >
+                      {m.busTag}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* Right 8 Cols: Selected Module Deep-Dive */}
@@ -304,7 +306,10 @@ export default function HardwarePage() {
           </div>
 
           {/* Interactive SVG Schematic */}
-          <div className="p-4 sm:p-6 bg-[#080808] overflow-x-auto custom-scrollbar">
+          <div className="md:hidden px-4 py-1.5 bg-[#111111] border-b border-[#222220] font-mono text-[10px] text-[#ffb300] text-center">
+            ← SWIPE SCHEMATIC HORIZONTALLY TO VIEW ALL PINS →
+          </div>
+          <div className="p-3 sm:p-6 bg-[#080808] overflow-x-auto custom-scrollbar">
             <svg viewBox="0 0 920 330" className="w-full min-w-[760px] h-auto font-mono">
               <rect
                 x="20"

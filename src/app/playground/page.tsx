@@ -440,7 +440,9 @@ export default function PlaygroundPage() {
               return (
                 <div
                   key={st.id}
-                  className={`p-3 sm:p-3.5 border-b sm:border-b-0 border-r border-[#222220] last:border-r-0 transition-colors ${
+                  className={`p-2.5 sm:p-3.5 border-b sm:border-b-0 border-r border-[#222220] last:border-r-0 transition-colors ${
+                    idx === 4 ? "col-span-2 sm:col-span-1" : ""
+                  } ${
                     active
                       ? "bg-[#ffb300] text-[#080808]"
                       : passed
@@ -628,7 +630,7 @@ export default function PlaygroundPage() {
             </div>
 
             {/* 3D WebGL Canvas Box */}
-            <div className="w-full h-[420px] sm:h-[500px] lg:h-[540px] relative">
+            <div className="w-full h-[320px] sm:h-[460px] lg:h-[540px] relative">
               <KinetiXStage3D
                 isRunning={isRunning}
                 simSpeed={simSpeed}
@@ -658,6 +660,59 @@ export default function PlaygroundPage() {
                 onTelemetryUpdate={handleTelemetryUpdate}
               />
             </div>
+
+            {/* Touch & Mouse Teleop D-Pad Bar when Manual WASD Mode is Active */}
+            {mode === "manual" && (
+              <div className="px-3 py-2.5 border-t border-[#ffb300] bg-[#151515] flex flex-wrap items-center justify-between gap-2 font-mono text-xs">
+                <span className="text-[#ffb300] text-[10px] sm:text-[11px] font-bold">
+                  TELEOP ACTIVE // HOLD TOUCH BUTTONS OR USE W/A/S/D + SPACE:
+                </span>
+                <div className="flex flex-wrap items-center gap-1.5 w-full sm:w-auto justify-between sm:justify-end">
+                  <div className="flex items-center gap-1">
+                    {(
+                      [
+                        { key: "w", label: "▲ FWD" },
+                        { key: "a", label: "◀ LEFT" },
+                        { key: "s", label: "▼ REV" },
+                        { key: "d", label: "▶ RIGHT" },
+                      ] as const
+                    ).map((btn) => (
+                      <button
+                        key={btn.key}
+                        onPointerDown={() =>
+                          setManualKeys((p) => ({ ...p, [btn.key]: true }))
+                        }
+                        onPointerUp={() =>
+                          setManualKeys((p) => ({ ...p, [btn.key]: false }))
+                        }
+                        onPointerLeave={() =>
+                          setManualKeys((p) => ({ ...p, [btn.key]: false }))
+                        }
+                        className={`px-2.5 py-1.5 border text-[10px] font-bold select-none touch-none cursor-pointer ${
+                          manualKeys[btn.key]
+                            ? "bg-[#ffb300] text-[#080808] border-[#ffb300]"
+                            : "bg-[#080808] text-[#f2efe9] border-[#3a3834]"
+                        }`}
+                      >
+                        {btn.label}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() =>
+                      setManualKeys((p) => ({ ...p, gripClosed: !p.gripClosed }))
+                    }
+                    className={`px-2.5 py-1.5 border text-[10px] font-bold cursor-pointer ${
+                      manualKeys.gripClosed
+                        ? "bg-[#00e676] text-[#080808] border-[#00e676]"
+                        : "bg-[#080808] text-[#00e5ff] border-[#00e5ff]"
+                    }`}
+                  >
+                    {manualKeys.gripClosed ? "GRIP: 30° CLOSED" : "GRIP: 90° OPEN"}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Bottom Sandbox, Maze Builder, Upgrades & Fault Injector Strip */}
             <div className="p-3 border-t border-[#222220] bg-[#0b0b0b] space-y-2 font-mono text-[11px]">
@@ -896,8 +951,8 @@ export default function PlaygroundPage() {
                   </div>
 
                   <div className="p-3.5 space-y-2.5 font-mono text-xs">
-                    <div className="flex items-center gap-3 bg-[#080808] border border-[#222220] p-2.5">
-                      <svg viewBox="0 0 200 105" className="w-40 h-20 shrink-0">
+                    <div className="flex flex-col sm:flex-row lg:flex-col xl:flex-row items-center gap-3 bg-[#080808] border border-[#222220] p-2.5">
+                      <svg viewBox="0 0 200 105" className="w-full max-w-[180px] h-20 shrink-0">
                         <line x1="20" y1="10" x2="180" y2="10" stroke="#ffb300" strokeWidth="2" />
                         <text x="4" y="13" fill="#ffb300" fontSize="9">+V</text>
                         <line x1="20" y1="95" x2="180" y2="95" stroke="#88857e" strokeWidth="2" />
@@ -988,7 +1043,7 @@ export default function PlaygroundPage() {
                         </text>
                       </svg>
 
-                      <div className="space-y-1.5 text-[10px]">
+                      <div className="grid grid-cols-2 sm:grid-cols-1 lg:grid-cols-2 xl:grid-cols-1 gap-1.5 text-[10px] w-full">
                         <div className="border border-[#222220] bg-[#111111] p-1.5">
                           <span className="text-[#88857e]">LEFT (A): </span>
                           <span className="text-[#f2efe9] font-bold">
@@ -1192,14 +1247,14 @@ export default function PlaygroundPage() {
             <span>PHASE 1: SEARCH &amp; PICK [01–06] · PHASE 2: CARRY &amp; PLACE [07–12]</span>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 divide-x divide-y divide-[#222220]">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 border-t border-[#222220]">
             {TWELVE_STEPS.map((s) => {
               const isCurrent = telemetry.stepNum === s.step;
               const isDone = telemetry.stepNum > s.step;
               return (
                 <div
                   key={s.step}
-                  className={`p-3 font-mono text-xs transition ${
+                  className={`p-3 border-b border-r border-[#222220] font-mono text-xs transition ${
                     isCurrent
                       ? "bg-[#ffb300]/15 border-l-2 border-l-[#ffb300]"
                       : isDone

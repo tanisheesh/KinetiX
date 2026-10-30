@@ -269,8 +269,10 @@ export default function LandingPage() {
           ].map((m, idx) => (
             <div
               key={m.label}
-              className={`p-5 sm:p-6 ${
-                idx < 3 ? "border-b sm:border-b-0 sm:border-r border-[#222220]" : ""
+              className={`p-5 sm:p-6 border-[#222220] ${
+                idx < 3 ? "border-b lg:border-b-0 lg:border-r" : ""
+              } ${idx % 2 === 0 ? "sm:border-r" : ""} ${
+                idx >= 2 ? "sm:border-b-0" : "sm:border-b"
               }`}
             >
               <div className="font-display font-black text-3xl sm:text-4xl lg:text-5xl text-[#ffb300] tracking-tight">
@@ -291,9 +293,14 @@ export default function LandingPage() {
             <span className="text-[#ffb300]">SENSE → THINK → POWER STAGE → ACT</span>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-5 divide-y md:divide-y-0 md:divide-x divide-[#222220]">
-            {FSM_STAGES.map((st) => (
-              <div key={st.id} className="p-4 sm:p-5 flex flex-col justify-between space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 border-t border-[#222220]">
+            {FSM_STAGES.map((st, idx) => (
+              <div
+                key={st.id}
+                className={`p-4 sm:p-5 border-b border-r border-[#222220] flex flex-col justify-between space-y-3 ${
+                  idx === 4 ? "sm:col-span-2 lg:col-span-1" : ""
+                }`}
+              >
                 <div className="space-y-2">
                   <div className="flex items-center justify-between font-mono text-[10px]">
                     <span className="px-2 py-0.5 bg-[#ffb300] text-[#080808] font-bold">
