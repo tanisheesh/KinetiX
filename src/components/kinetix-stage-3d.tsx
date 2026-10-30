@@ -249,11 +249,14 @@ export default function KinetiXStage3D({
     in4: 0,
     distanceCm: 48.0,
     echoUs: 2784,
-    avoidState: "NONE" as "NONE" | "BRAKE" | "SPIN" | "BYPASS",
+    avoidState: "NONE" as "NONE" | "BRAKE" | "SPIN_90" | "DRIVE_CLEAR" | "SPIN_BACK" | "DRIVE_PAST",
     avoidTimer: 0,
     avoidTurnDir: -1,
-    bypassWaypointX: 1.5,
-    bypassWaypointZ: -1.8,
+    avoidRefHeading: 0,
+    avoidStartX: 0,
+    avoidStartZ: 0,
+    avoidLateralDist: 2.1,
+    avoidForwardClearX: 2.6,
     stateTimer: 0,
     wheelRotL: 0,
     wheelRotR: 0,
@@ -984,10 +987,12 @@ export default function KinetiXStage3D({
       activeCyl: { x: number; z: number },
       yoloOn: boolean
     ) => {
+      // Measure sonar from the front-most physical contour (including held payload!)
+      const frontOffset = rp.hasCylinder ? 1.66 : 1.02;
       const origin = new THREE.Vector3(
-        rp.x + Math.cos(rp.heading) * 1.02,
+        rp.x + Math.cos(rp.heading) * frontOffset,
         0.4,
-        rp.z + Math.sin(rp.heading) * 1.02
+        rp.z + Math.sin(rp.heading) * frontOffset
       );
       let minWorld = 8.0; // 120 cm max visual range (8.0 * 15 = 120 cm)
       let hitObsObj: ArenaObstacle | null = null;
@@ -1265,27 +1270,32 @@ export default function KinetiXStage3D({
             rp.avoidState === "NONE" &&
             rp.distanceCm <= cur.obstacleThresholdCm
           ) {
+            // SLIDE 21 STEP 1: Detect d <= 20 cm -> Brake immediately before touching obstacle!
             rp.avoidState = "BRAKE";
             rp.avoidTimer = 0;
             rp.stepNum = 7;
             rp.activeCodeLine = 8;
-            rp.subStageText = `OBSTACLE AT d = ${rp.distanceCm.toFixed(1)} cm (≤ ${cur.obstacleThresholdCm} cm) // H-BRIDGE BRAKING`;
+            rp.subStageText = `OBSTACLE DETECTED AT d = ${rp.distanceCm.toFixed(1)} cm (≤ ${cur.obstacleThresholdCm} cm) // H-BRIDGE BRAKING`;
 
-            // Compute a guaranteed-clear lateral bypass waypoint around the detected obstacle!
             const refObs = hitObsObj || cur.obstacles[0];
             if (refObs) {
-              const sideSign = rp.z <= refObs.z ? -1 : 1;
-              rp.avoidTurnDir = sideSign;
-              rp.bypassWaypointX = refObs.x + refObs.w * 0.5 + 0.85;
-              rp.bypassWaypointZ = Math.max(
-                -3.1,
-                Math.min(3.1, refObs.z + sideSign * (refObs.d * 0.5 + 1.35))
+              // Pick the side with more room (defaulting to negative Z / upper lane on screen)
+              rp.avoidTurnDir = rp.z <= refObs.z ? -1 : 1;
+              // Lateral distance required so chassis + wheels + gripper completely clear obstacle Z-depth
+              const requiredZ =
+                refObs.z + rp.avoidTurnDir * (refObs.d * 0.5 + 1.45);
+              rp.avoidLateralDist = Math.max(
+                1.75,
+                Math.min(3.1, Math.abs(requiredZ - rp.z))
               );
+              // Forward X required so the rear of the chassis completely passes the obstacle X-width
+              rp.avoidForwardClearX = refObs.x + refObs.w * 0.5 + 1.35;
             } else {
               rp.avoidTurnDir = rp.z >= 0 ? -1 : 1;
-              rp.bypassWaypointX = rp.x + 2.2;
-              rp.bypassWaypointZ = rp.z + rp.avoidTurnDir * 1.8;
+              rp.avoidLateralDist = 2.0;
+              rp.avoidForwardClearX = rp.x + 2.8;
             }
+            rp.avoidRefHeading = 0; // Main corridor direction (+X)
           } else if (rp.avoidState === "BRAKE") {
             rp.in1 = 1;
             rp.in2 = 1;
@@ -1295,19 +1305,21 @@ export default function KinetiXStage3D({
             rp.rightPwm = 0;
             rp.avoidTimer += dt * cur.simSpeed;
             if (rp.avoidTimer > 0.35) {
-              rp.avoidState = "SPIN";
+              rp.avoidState = "SPIN_90";
               rp.avoidTimer = 0;
               rp.stepNum = 8;
-              rp.subStageText = `DIFFERENTIAL SPIN (${cur.spinDurationMs}ms) // L298N S1+S4 (L) & S3+S2 (R)`;
+              rp.subStageText =
+                "SLIDE 21 STEP 2 // SPINNING 90° IN PLACE (WHEELS OPPOSITE)";
             }
-          } else if (rp.avoidState === "SPIN") {
-            const desiredBypassHeading = Math.atan2(
-              rp.bypassWaypointZ - rp.z,
-              rp.bypassWaypointX - rp.x
-            );
-            const headingErr = wrap(desiredBypassHeading - rp.heading);
-            rp.heading +=
-              Math.sign(headingErr || rp.avoidTurnDir) * turnSpd * 1.15 * dt;
+          } else if (rp.avoidState === "SPIN_90") {
+            // SLIDE 21 STEP 2: Pure 90° spin on the spot (v = 0, wheels in opposite directions)
+            const targetHeading90 =
+              rp.avoidRefHeading + rp.avoidTurnDir * (Math.PI / 2);
+            const headingErr = wrap(targetHeading90 - rp.heading);
+            const stepAng =
+              Math.sign(headingErr || rp.avoidTurnDir) *
+              Math.min(Math.abs(headingErr), turnSpd * 1.15 * dt);
+            rp.heading = wrap(rp.heading + stepAng);
 
             rp.in1 = rp.avoidTurnDir > 0 ? 1 : 0;
             rp.in2 = rp.avoidTurnDir > 0 ? 0 : 1;
@@ -1317,64 +1329,96 @@ export default function KinetiXStage3D({
             rp.rightPwm = cur.motorPwm;
             rp.avoidTimer += dt * cur.simSpeed;
 
-            if (Math.abs(headingErr) < 0.22 || rp.avoidTimer > 0.65) {
-              rp.avoidState = "BYPASS";
+            if (Math.abs(headingErr) < 0.05 || rp.avoidTimer > 1.2) {
+              rp.heading = targetHeading90;
+              rp.avoidStartX = rp.x;
+              rp.avoidStartZ = rp.z;
+              rp.avoidState = "DRIVE_CLEAR";
               rp.avoidTimer = 0;
-              rp.subStageText = "CORRIDOR CLEAR // BYPASSING OBSTACLE FLANK";
+              rp.subStageText =
+                "SLIDE 21 STEP 3 // DRIVING PERPENDICULAR TO CLEAR OBSTACLE WIDTH";
             }
-          } else if (rp.avoidState === "BYPASS") {
-            // Drive smoothly through the lateral bypass waypoint until past the obstacle X!
-            const desiredAng = Math.atan2(
-              rp.bypassWaypointZ - rp.z,
-              rp.bypassWaypointX - rp.x
-            );
-            const err = wrap(desiredAng - rp.heading);
-            rp.heading += Math.sign(err) * Math.min(Math.abs(err) * 3.5, turnSpd) * dt;
+          } else if (rp.avoidState === "DRIVE_CLEAR") {
+            // SLIDE 21 STEP 3: Drive straight laterally until completely outside obstacle's Z-footprint
             rp.x += Math.cos(rp.heading) * linSpd * dt;
             rp.z += Math.sin(rp.heading) * linSpd * dt;
-
             rp.in1 = 1;
             rp.in2 = 0;
             rp.in3 = 1;
             rp.in4 = 0;
             rp.leftPwm = cur.motorPwm;
             rp.rightPwm = cur.motorPwm;
+
+            const latTraveled = Math.hypot(
+              rp.x - rp.avoidStartX,
+              rp.z - rp.avoidStartZ
+            );
+            if (latTraveled >= rp.avoidLateralDist || Math.abs(rp.z) > 3.15) {
+              rp.avoidState = "SPIN_BACK";
+              rp.avoidTimer = 0;
+              rp.subStageText =
+                "SLIDE 21 STEP 4 // SPINNING 90° BACK TO PARALLEL CORRIDOR LANE";
+            }
+          } else if (rp.avoidState === "SPIN_BACK") {
+            // SLIDE 21 STEP 4: Spin 90° back in place to face parallel to the corridor (+X)
+            const headingErr = wrap(rp.avoidRefHeading - rp.heading);
+            const stepAng =
+              Math.sign(headingErr || -rp.avoidTurnDir) *
+              Math.min(Math.abs(headingErr), turnSpd * 1.15 * dt);
+            rp.heading = wrap(rp.heading + stepAng);
+
+            rp.in1 = rp.avoidTurnDir < 0 ? 1 : 0;
+            rp.in2 = rp.avoidTurnDir < 0 ? 0 : 1;
+            rp.in3 = rp.avoidTurnDir < 0 ? 0 : 1;
+            rp.in4 = rp.avoidTurnDir < 0 ? 1 : 0;
+            rp.leftPwm = cur.motorPwm;
+            rp.rightPwm = cur.motorPwm;
             rp.avoidTimer += dt * cur.simSpeed;
 
-            const distToWp = Math.hypot(
-              rp.bypassWaypointX - rp.x,
-              rp.bypassWaypointZ - rp.z
-            );
-            if (rp.x >= rp.bypassWaypointX - 0.25 || distToWp < 0.45 || rp.avoidTimer > 2.4) {
+            if (Math.abs(headingErr) < 0.05 || rp.avoidTimer > 1.2) {
+              rp.heading = rp.avoidRefHeading;
+              rp.avoidState = "DRIVE_PAST";
+              rp.avoidTimer = 0;
+              rp.subStageText =
+                "BYPASSING OBSTACLE FLANK // DRIVING PARALLEL UNTIL CLEAR";
+            }
+          } else if (rp.avoidState === "DRIVE_PAST") {
+            // Drive straight parallel (+X) in the open bypass lane until completely past the obstacle's back edge!
+            if (rp.distanceCm <= cur.obstacleThresholdCm) {
+              // Secondary obstacle encountered in the bypass lane! Trigger fresh 90° avoidance
               rp.avoidState = "NONE";
+            } else {
+              const err = wrap(rp.avoidRefHeading - rp.heading);
+              rp.heading +=
+                Math.sign(err) * Math.min(Math.abs(err) * 3.0, turnSpd) * dt;
+              rp.x += Math.cos(rp.heading) * linSpd * dt;
+              rp.z += Math.sin(rp.heading) * linSpd * dt;
+
+              rp.in1 = 1;
+              rp.in2 = 0;
+              rp.in3 = 1;
+              rp.in4 = 0;
+              rp.leftPwm = cur.motorPwm;
+              rp.rightPwm = cur.motorPwm;
+
+              if (rp.x >= rp.avoidForwardClearX) {
+                rp.avoidState = "NONE";
+                rp.subStageText =
+                  "OBSTACLE CLEARED // REJOINING TRAJECTORY TO TARGET DROP ZONE";
+              }
             }
           } else {
-            // Normal CARRY navigation toward target with smooth obstacle-flank repulsion
+            // Normal CARRY cruise toward target once past the obstacle
             rp.stepNum = 9;
             rp.activeCodeLine = 9;
             rp.subStageText = `TRANSPORTING TO TARGET // SONAR CLEAR (${rp.distanceCm.toFixed(1)} cm)`;
 
-            let targetVx = activeTargetPos.x - rp.x;
-            let targetVz = activeTargetPos.z - rp.z;
-            const tLen = Math.hypot(targetVx, targetVz) || 1;
-            targetVx /= tLen;
-            targetVz /= tLen;
-
-            // Add smooth lateral clearance repulsion so the rover never clips obstacle corners
-            cur.obstacles.forEach((obs) => {
-              const dx = rp.x - obs.x;
-              const dz = rp.z - obs.z;
-              const dist = Math.hypot(dx, dz);
-              const safeRadius = Math.max(obs.w, obs.d) * 0.75 + 0.95;
-              if (dist < safeRadius && dist > 0.05) {
-                const push = ((safeRadius - dist) / safeRadius) * 1.8;
-                targetVz += (dz / dist) * push;
-              }
-            });
-
-            const desiredHeading = Math.atan2(targetVz, targetVx);
+            const desiredHeading = Math.atan2(
+              activeTargetPos.z - rp.z,
+              activeTargetPos.x - rp.x
+            );
             const err = wrap(desiredHeading - rp.heading);
-            rp.heading += Math.sign(err) * Math.min(Math.abs(err) * 3.8, turnSpd) * dt;
+            rp.heading += Math.sign(err) * Math.min(Math.abs(err) * 3.2, turnSpd) * dt;
             rp.x += Math.cos(rp.heading) * linSpd * dt;
             rp.z += Math.sin(rp.heading) * linSpd * dt;
             rp.in1 = 1;
@@ -1440,6 +1484,45 @@ export default function KinetiXStage3D({
             }
           }
         }
+      }
+
+      // Solid Obstacle Collision Resolution (Guarantees the chassis + gripper NEVER clips inside any container!)
+      if (cur.cameraMode !== "xray") {
+        // Check both robot chassis center and front gripper/payload tip against every obstacle box
+        const checkPts = [
+          { offset: 0.0, radius: 0.85 },
+          { offset: rp.hasCylinder ? 1.35 : 0.95, radius: 0.42 },
+        ];
+        cur.obstacles.forEach((obs) => {
+          const cosA = Math.cos(-(obs.angle || 0));
+          const sinA = Math.sin(-(obs.angle || 0));
+          checkPts.forEach((pt) => {
+            const px = rp.x + Math.cos(rp.heading) * pt.offset;
+            const pz = rp.z + Math.sin(rp.heading) * pt.offset;
+            const dx = px - obs.x;
+            const dz = pz - obs.z;
+            const localX = dx * cosA - dz * sinA;
+            const localZ = dx * sinA + dz * cosA;
+            const halfW = obs.w * 0.5 + pt.radius;
+            const halfD = obs.d * 0.5 + pt.radius;
+
+            if (Math.abs(localX) < halfW && Math.abs(localZ) < halfD) {
+              const overlapX = halfW - Math.abs(localX);
+              const overlapZ = halfD - Math.abs(localZ);
+              let pushLocalX = 0;
+              let pushLocalZ = 0;
+              if (overlapX < overlapZ) {
+                pushLocalX = (localX < 0 ? -1 : 1) * overlapX;
+              } else {
+                pushLocalZ = (localZ < 0 ? -1 : 1) * overlapZ;
+              }
+              const cosInv = Math.cos(obs.angle || 0);
+              const sinInv = Math.sin(obs.angle || 0);
+              rp.x += pushLocalX * cosInv - pushLocalZ * sinInv;
+              rp.z += pushLocalX * sinInv + pushLocalZ * cosInv;
+            }
+          });
+        });
       }
 
       rp.x = Math.max(-7.3, Math.min(7.3, rp.x));
@@ -1617,7 +1700,8 @@ export default function KinetiXStage3D({
 
       if (now - lastUi > 65) {
         lastUi = now;
-        const isSpinning = rp.avoidState === "SPIN";
+        const isSpinning =
+          rp.avoidState === "SPIN_90" || rp.avoidState === "SPIN_BACK";
         const isBraking = rp.in1 === 1 && rp.in2 === 1;
         const baseCurrent =
           rp.leftPwm === 0
