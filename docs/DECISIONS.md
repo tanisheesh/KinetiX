@@ -4,9 +4,9 @@
 
 ## Decision 1 — Decoupling 60Hz Three.js Kinematics from 15Hz React Telemetry State
 
-**Context:** Running a full 3D WebGL simulation alongside live React telemetry components (oscilloscope canvas, SVG H-Bridge schematic, C++ code highlighter, and projected 3D DOM badges) can cause severe frame drops if `setState` is invoked on every `requestAnimationFrame` tick (60 times per second).
+**Context:** Running a full 3D WebGL simulation alongside live React telemetry components (oscilloscope canvas, 120-sample strip chart, SVG H-Bridge schematic, C++ code highlighter, and projected 3D DOM badges) can cause severe frame drops if `setState` is invoked on every `requestAnimationFrame` tick (60 times per second).
 
-**Decision:** Store all high-frequency kinematic, raycasting, and motor-pin variables inside a mutable `physRef` (`useRef`) updated at 60 FPS inside the Three.js loop, while throttling React telemetry state updates (`onTelemetryUpdate`) to once every `65 ms` (~15 Hz).
+**Decision:** Store all high-frequency kinematic, raycasting, OBB collision, and motor-pin variables inside a mutable `physRef` (`useRef`) updated at 60 FPS inside the Three.js loop, while throttling React telemetry state updates (`onTelemetryUpdate`) to once every `65 ms` (~15 Hz).
 
 **Reason:** The human eye requires 60 FPS for smooth 3D motion and camera orbiting, but reads numeric telemetry gauges and code-line highlights comfortably at 15 Hz. Decoupling the two loops keeps WebGL frame times under `4 ms` even on mobile devices.
 
@@ -14,39 +14,39 @@
 
 ---
 
-## Decision 2 — L298N Dual H-Bridge Isolation vs. Direct Microcontroller Drive
+## Decision 2 — Orthogonal 90° Box-Bypass Maneuver + Solid OBB Collision Bounds
 
-**Context:** In the hardware design, we needed bidirectional speed and direction control for four 1:48 geared DC motors controlled by an Arduino UNO (ATmega328P).
+**Context:** When a differential-drive rover carrying an extended front payload (`+1.66` world units ahead of chassis center) steers diagonally around an obstacle crate, its side wheels or gripper tips can clip the obstacle corner.
 
-**Decision:** Place an L298N Dual Full-Bridge driver between the Arduino GPIO pins (`D5, D7, D8, D6, D4, D2`) and the DC motors, powered directly from the 7.4 V (2×18650 Li-ion) battery rail with a unified Common Ground bus.
+**Decision:** Measure ultrasonic raycasts from the front-most payload contour, enforce hard Oriented Bounding Box (OBB) collision resolution against all obstacles, and execute a 4-step orthogonal bypass (`BRAKE` → `SPIN_90` → `DRIVE_CLEAR` → `SPIN_BACK` → `DRIVE_PAST`) in both `SEARCH` and `CARRY` states.
 
-**Reason:** An ATmega328P digital pin safely sources only ~20 mA at 5 V, whereas each geared DC motor draws 150–500 mA continuously and >1 A at stall while requiring 6–12 V. Additionally, inductive motor windings generate reverse voltage spikes during switching that would destroy the microcontroller without an H-Bridge power stage and flyback diodes.
+**Reason:** Spinning $90^\circ$ in place ($v = 0$, wheels opposite), driving perpendicular until the chassis + wheel width clears the obstacle's lateral footprint, spinning $90^\circ$ back to the corridor heading, and driving parallel until past the obstacle's back edge guarantees physical clearance without corner clipping.
 
-**Tradeoff:** The bipolar Darlington switches inside the L298N introduce an internal thermal voltage drop of `~2.0 V`, requiring at least a 7.4 V battery pack to deliver ~5.4 V at the motor terminals.
-
----
-
-## Decision 3 — Direct 50Hz PWM Drive for the SG90 Gripper Servo (Pin D9)
-
-**Context:** While the wheel motors require the L298N power stage, the two-jaw mechanical gripper is actuated by an SG90 micro servo.
-
-**Decision:** Drive the SG90 signal wire (Orange) directly from Arduino hardware PWM Pin `D9` while supplying `+5V` and `GND` from the regulated 5 V rail.
-
-**Reason:** A hobby servo is already a self-contained closed-loop subsystem containing an internal H-bridge driver IC, reduction gear train, potentiometer shaft sensor, and error comparator. Pin `D9` only carries a low-current (<5 mA) 50 Hz timing pulse (`1.0 ms` = $0^\circ$, `1.17 ms` = $30^\circ$ closed, `1.50 ms` = $90^\circ$ open) rather than motor power.
-
-**Tradeoff:** Heavy gripper stall loads on the 5 V rail can cause transient voltage dips (`brownout`) if the Arduino and servo share a weak regulator without decoupling capacitance.
+**Tradeoff:** Orthogonal box-bypasses travel a slightly longer path than a curved spline trajectory, which is the exact real-world tradeoff of single-sensor ultrasonic rovers without a 360° LiDAR costmap.
 
 ---
 
-## Decision 4 — Task-Phase Disambiguation in a 5-State Deterministic Finite Automaton
+## Decision 3 — Single-Canvas Scissor Multiplexing for Picture-in-Picture (`NOSE_CAM`)
 
-**Context:** The robot uses a single non-imaging HC-SR04 ultrasonic sensor (`d = t / 58 cm`) that reports distance only, yet must both approach and grip a target cylinder (`d ≤ 5 cm`) and avoid obstacles (`d ≤ 20 cm`).
+**Context:** We wanted users to orbit the 3D arena freely while simultaneously viewing the rover's first-person onboard camera (`NOSE_CAM // POV`) in a corner monitor.
 
-**Decision:** Structure the firmware as a 5-state Deterministic Finite Automaton (`SEARCH` → `PICK` → `CARRY` → `PLACE` → `DONE`) where sensor readings are interpreted by state phase.
+**Decision:** Render both `camera` (main view) and `pipCamera` (front HC-SR04 POV) inside the same `THREE.WebGLRenderer` instance using `renderer.setViewport()` and `renderer.setScissor()` in a two-pass render cycle.
 
-**Reason:** In `SEARCH`, the robot is oriented toward the pick zone, so the first acoustic reflection is treated as the target cylinder and approached at creep speed (`PWM=115`) down to `5.0 cm`. Once `PICK` locks the servo at `30°` and transitions to `CARRY`, the payload is already held in the jaws, so any subsequent reflection within `20.0 cm` is unambiguously an obstacle and triggers a differential spin bypass.
+**Reason:** Creating two separate `<canvas>` and `WebGLRenderer` instances requires duplicating every Three.js geometry, material, and shadow map in GPU memory. Scissor multiplexing reuses the exact same scene graph in under `0.6 ms` of extra GPU time.
 
-**Tradeoff:** If an unexpected obstacle is placed in front of the target cylinder inside the pick zone during `SEARCH`, a single ultrasonic sensor cannot visually distinguish it from the cylinder — a limitation explicitly demonstrated in `SCEN_03` and solved in v2 via YOLOv8 vision.
+**Tradeoff:** The PiP overlay must sit within the bounding rectangle of the primary WebGL canvas.
+
+---
+
+## Decision 4 — L298N Dual H-Bridge Isolation & Direct 50Hz PWM Servo Drive
+
+**Context:** The rover must control four high-current 1:48 DC gearmotors alongside a closed-loop SG90 micro servo from an Arduino UNO (ATmega328P).
+
+**Decision:** Route DC motor channels through an L298N Dual Full-Bridge driver (`D5, D7, D8` and `D6, D4, D2`) powered by the 7.4 V Li-ion pack, while driving the SG90 signal line directly from hardware PWM Pin `D9` with a unified Common Ground bus.
+
+**Reason:** ATmega328P GPIO pins source at most ~20 mA at 5 V (`FAULT_04` demonstrates how direct motor connection causes a 480 mA overcurrent failure), whereas the SG90 houses its own internal H-bridge IC and potentiometer feedback loop, requiring only a `<5 mA` 50 Hz timing pulse (`1.17 ms` = $30^\circ$, `1.50 ms` = $90^\circ$) on Pin `D9`.
+
+**Tradeoff:** The bipolar Darlington transistors inside the L298N drop `~2.0 V` thermally (`FAULT_03` demonstrates how battery sag to 4.8 V causes brownout stall).
 
 ---
 

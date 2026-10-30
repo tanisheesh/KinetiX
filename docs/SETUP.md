@@ -44,9 +44,9 @@ npm run dev
 
 KinetiX will be running at `http://localhost:3000`.
 
-- `http://localhost:3000/` — Specification, 5-State DFA & 12-Step Matrix
-- `http://localhost:3000/playground` — Interactive 3D Digital Twin Stage & Telemetry Workbench
-- `http://localhost:3000/hardware` — 9-Module Datasheets, Fault Wiring Schematic & `.ino` Download
+- `http://localhost:3000/` — Specification, 5-State DFA, 12-Step Matrix & Architecture Benchmark
+- `http://localhost:3000/playground` — 3D Digital Twin Stage, C++ Firmware Patcher, PiP Nose-Cam, A/B Ghost Race, 3-Object Sorting & Blackbox Strip Chart
+- `http://localhost:3000/hardware` — 9-Module Datasheets, Interactive 4-Fault Wiring Simulator & `.ino` Download
 - `http://localhost:3000/how-it-works` — Kinematics, Truth Tables, V2 Upgrades & Design Rationale
 
 ---
