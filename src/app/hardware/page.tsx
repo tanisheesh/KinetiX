@@ -6,12 +6,74 @@ import Navbar from "@/components/navbar";
 import Footer from "@/components/footer";
 import { FULL_ARDUINO_SKETCH, HARDWARE_MODULES } from "@/lib/kinetix-data";
 
+type FaultType = "none" | "no_gnd" | "swap_in1_in2" | "brownout" | "direct_gpio";
+
+const WIRING_FAULTS: Record<
+  FaultType,
+  {
+    code: string;
+    label: string;
+    slide: string;
+    status: string;
+    diagnosis: string;
+    electricalEffect: string;
+  }
+> = {
+  none: {
+    code: "NOMINAL",
+    label: "ALL WIRES NOMINAL (SLIDE 18)",
+    slide: "Slide 18",
+    status: "PASS // BUS HEALTHY",
+    diagnosis:
+      "All 9 modules share a unified 0V Common Ground reference. L298N receives 7.4V from the 2x18650 pack (delivering ~5.4V to motors after the 2V BJT drop), while Arduino GPIO pins source <5mA logic signals.",
+    electricalEffect: "Vin = 7.4V | V_logic = 5.0V | I_gpio = 4.2mA (<20mA limit)",
+  },
+  no_gnd: {
+    code: "FAULT_01",
+    label: "DISCONNECT COMMON GND",
+    slide: "Slide 18",
+    status: "CRITICAL // FLOATING REFERENCE",
+    diagnosis:
+      "Arduino GND and L298N Battery (–) are isolated. Because digital HIGH (5V) is measured relative to 0V GND, the L298N input gates see floating random potentials and trigger erratic, uncontrollable motor switching.",
+    electricalEffect: "V_ref(UNO) ≠ V_ref(L298N) → IN1..IN4 Float Indeterminately",
+  },
+  swap_in1_in2: {
+    code: "FAULT_02",
+    label: "SWAP IN1 ↔ IN2 POLARITY",
+    slide: "Slides 10 & 11",
+    status: "ERROR // H-BRIDGE REVERSED",
+    diagnosis:
+      "Pin D7 and D8 are crossed on Channel A. When forward() sets D7=HIGH and D8=LOW, the L298N closes S3+S2 instead of S1+S4, spinning the left wheels in reverse while right wheels drive forward — locking the rover in a continuous left spin.",
+    electricalEffect: "Channel A: S3+S2 Closed (Reverse) | Channel B: S1+S4 Closed (Forward)",
+  },
+  brownout: {
+    code: "FAULT_03",
+    label: "BATTERY SAG (4.8V < 7.0V)",
+    slide: "Slides 11 & 16",
+    status: "BROWNOUT // MCU RESET LOOP",
+    diagnosis:
+      "The L298N drops ~2.0V internally across its bipolar transistors and its 78M05 5V regulator requires Vin > 7.0V. At 4.8V input, motors receive only ~2.8V (stalling under load) and motor start-up current dips Vcc below the ATmega328P brownout threshold, resetting the Arduino.",
+    electricalEffect: "V_motor = 4.8V - 2.0V = 2.8V (Stall) | 5V Rail Collapses → MCU Reset",
+  },
+  direct_gpio: {
+    code: "FAULT_04",
+    label: "BYPASS L298N (DIRECT GPIO)",
+    slide: "Slides 7 & 10",
+    status: "DAMAGE // PIN D7 OVERCURRENT",
+    diagnosis:
+      "Connecting a 1:48 DC gearmotor directly to Arduino Pin D7 draws 150–500 mA (and >1A at stall) from a pin rated for 20 mA absolute continuous output, burning out the ATmega328P output transistor and injecting inductive back-EMF spikes into the 5V rail.",
+    electricalEffect: "I_load = 480 mA >> 20 mA Max Rating → ATmega328P I/O Pin Thermal Failure",
+  },
+};
+
 export default function HardwarePage() {
   const [selectedId, setSelectedId] = useState("arduino");
+  const [activeFault, setActiveFault] = useState<FaultType>("none");
   const [copied, setCopied] = useState(false);
 
   const activeModule =
     HARDWARE_MODULES.find((m) => m.id === selectedId) || HARDWARE_MODULES[0];
+  const faultInfo = WIRING_FAULTS[activeFault];
 
   const handleCopyCode = () => {
     navigator.clipboard.writeText(FULL_ARDUINO_SKETCH);
@@ -44,8 +106,8 @@ export default function HardwarePage() {
               HARDWARE &amp; WIRING SPECIFICATION
             </h1>
             <p className="text-xs sm:text-base text-[#88857e] mt-3 max-w-3xl leading-relaxed">
-              Complete electrical ratings, pin-level signal mapping, H-Bridge power stage
-              interfacing, and unified Common Ground bus topology for the KinetiX mobile
+              Complete electrical ratings, pin-level signal mapping, interactive wiring fault
+              validator, and unified Common Ground bus topology for the KinetiX mobile
               pick-and-place platform.
             </p>
           </div>
@@ -121,7 +183,6 @@ export default function HardwarePage() {
                   </p>
                 </div>
 
-                {/* Engineering Constraint Note */}
                 <div className="border border-[#ffb300]/40 bg-[#ffb300]/10 p-4 font-mono text-xs text-[#f2efe9] leading-relaxed">
                   <span className="text-[#ffb300] font-bold uppercase mr-2">
                     [ENGINEERING CONSTRAINT]:
@@ -129,7 +190,6 @@ export default function HardwarePage() {
                   {activeModule.engineeringNote}
                 </div>
 
-                {/* Specs Grid */}
                 <div>
                   <div className="font-mono text-xs text-[#88857e] uppercase tracking-wider mb-3">
                     ELECTRICAL &amp; MECHANICAL PARAMETERS
@@ -146,7 +206,6 @@ export default function HardwarePage() {
                   </div>
                 </div>
 
-                {/* Pin Interconnects */}
                 <div>
                   <div className="font-mono text-xs text-[#00e676] uppercase tracking-wider mb-2.5">
                     ACTIVE SIGNAL &amp; POWER TERMINALS (SLIDE 18)
@@ -175,13 +234,78 @@ export default function HardwarePage() {
           </div>
         </section>
 
-        {/* ================= 2. SLIDE 18 WIRING & COMMON GROUND SCHEMATIC ================= */}
+        {/* ================= 2. INTERACTIVE WIRING VALIDATOR & FAULT INJECTION LAB (UPGRADE #4) ================= */}
         <section className="panel-frame">
           <div className="panel-header">
-            <span>SYSTEM INTERCONNECT SCHEMATIC // SENSE → THINK → POWER STAGE → ACT (SLIDES 17 &amp; 18)</span>
-            <span className="text-[#ffb300]">STAR/BUS COMMON GROUND TOPOLOGY</span>
+            <span>
+              INTERACTIVE WIRING SCHEMATIC &amp; FAULT SIMULATOR (SLIDES 10, 16, 17, 18)
+            </span>
+            <span
+              className={
+                activeFault === "none"
+                  ? "text-[#00e676] font-bold"
+                  : "text-[#ff2a2a] font-bold"
+              }
+            >
+              ● {faultInfo.status}
+            </span>
           </div>
 
+          {/* Fault Selector Strip */}
+          <div className="p-3.5 border-b border-[#222220] bg-[#111111] flex flex-wrap items-center justify-between gap-2 font-mono text-xs">
+            <span className="text-[#88857e] text-[11px]">
+              INJECT WIRING FAULT FOR VIVA DEMO:
+            </span>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {(Object.keys(WIRING_FAULTS) as FaultType[]).map((fKey) => {
+                const f = WIRING_FAULTS[fKey];
+                const isSel = activeFault === fKey;
+                return (
+                  <button
+                    key={fKey}
+                    onClick={() => setActiveFault(fKey)}
+                    className={`px-2.5 py-1.5 border text-[10px] cursor-pointer transition ${
+                      isSel
+                        ? fKey === "none"
+                          ? "bg-[#00e676] text-[#080808] border-[#00e676] font-bold"
+                          : "bg-[#ff2a2a] text-[#f2efe9] border-[#ff2a2a] font-bold"
+                        : "bg-[#080808] text-[#88857e] border-[#222220] hover:text-[#f2efe9]"
+                    }`}
+                  >
+                    [{f.code}] {f.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Live Fault Diagnosis Box */}
+          <div
+            className={`px-5 py-3.5 border-b border-[#222220] font-mono text-xs flex flex-col lg:flex-row lg:items-center justify-between gap-3 ${
+              activeFault === "none" ? "bg-[#0b120e]" : "bg-[#1f0909]"
+            }`}
+          >
+            <div className="space-y-1 max-w-4xl">
+              <div className="flex items-center gap-2">
+                <span
+                  className={`font-bold ${
+                    activeFault === "none" ? "text-[#00e676]" : "text-[#ff2a2a]"
+                  }`}
+                >
+                  [{faultInfo.code} // {faultInfo.slide}]:
+                </span>
+                <span className="text-[#f2efe9] font-bold">{faultInfo.label}</span>
+              </div>
+              <p className="text-[#88857e] font-sans text-xs leading-relaxed">
+                {faultInfo.diagnosis}
+              </p>
+            </div>
+            <div className="px-3 py-2 bg-[#080808] border border-[#222220] text-[#ffb300] text-[11px] shrink-0">
+              {faultInfo.electricalEffect}
+            </div>
+          </div>
+
+          {/* Interactive SVG Schematic */}
           <div className="p-4 sm:p-6 bg-[#080808] overflow-x-auto custom-scrollbar">
             <svg viewBox="0 0 920 330" className="w-full min-w-[760px] h-auto font-mono">
               {/* Unified Common Ground Bar */}
@@ -191,18 +315,21 @@ export default function HardwarePage() {
                 width="880"
                 height="30"
                 fill="#111111"
-                stroke="#00e676"
+                stroke={activeFault === "no_gnd" ? "#ff2a2a" : "#00e676"}
                 strokeWidth="2"
+                strokeDasharray={activeFault === "no_gnd" ? "8,6" : "none"}
               />
               <text
                 x="460"
                 y="305"
                 textAnchor="middle"
-                fill="#00e676"
+                fill={activeFault === "no_gnd" ? "#ff2a2a" : "#00e676"}
                 fontSize="11"
                 fontWeight="bold"
               >
-                UNIFIED COMMON GROUND BUS (0V REFERENCE) — Battery (–) · Arduino GND · L298N GND · HC-SR04 GND · SG90 Brown
+                {activeFault === "no_gnd"
+                  ? "✖ COMMON GROUND DISCONNECTED — FLOATING LOGIC REFERENCE FAULT (SLIDE 18)"
+                  : "UNIFIED COMMON GROUND BUS (0V REFERENCE) — Battery (–) · Arduino GND · L298N GND · HC-SR04 GND · SG90 Brown"}
               </text>
 
               {/* HC-SR04 */}
@@ -257,24 +384,44 @@ export default function HardwarePage() {
                 width="245"
                 height="241"
                 fill="#151515"
-                stroke="#f2efe9"
+                stroke={
+                  activeFault === "direct_gpio" || activeFault === "brownout"
+                    ? "#ff2a2a"
+                    : "#f2efe9"
+                }
                 strokeWidth="2.5"
               />
               <text x="457" y="50" textAnchor="middle" fill="#f2efe9" fontSize="14" fontWeight="bold">
                 ARDUINO UNO R3
               </text>
               <text x="457" y="68" textAnchor="middle" fill="#ffb300" fontSize="10">
-                ATmega328P · 16 MHz · 5V Logic
+                {activeFault === "brownout"
+                  ? "BROWNOUT RESET LOOP (<5V)"
+                  : activeFault === "direct_gpio"
+                  ? "OVERCURRENT FAULT (480mA > 20mA)"
+                  : "ATmega328P · 16 MHz · 5V Logic"}
               </text>
               <text x="352" y="104" fill="#ffb300" fontSize="10">D10 (OUT) : Sonar Trig</text>
               <text x="352" y="122" fill="#00e676" fontSize="10">D11 (IN)  : Sonar Echo</text>
               <text x="352" y="150" fill="#00e5ff" fontSize="10">D9  (PWM) : Servo 50Hz</text>
               <text x="352" y="182" fill="#ff2a2a" fontSize="10">D5 (PWM)  : L298N ENA</text>
-              <text x="352" y="200" fill="#ff2a2a" fontSize="10">D7 / D8   : L298N IN1/IN2</text>
+              <text x="352" y="200" fill="#ff2a2a" fontSize="10">
+                {activeFault === "swap_in1_in2"
+                  ? "D7 / D8   : SWAPPED (IN2/IN1)!"
+                  : "D7 / D8   : L298N IN1/IN2"}
+              </text>
               <text x="352" y="220" fill="#ff2a2a" fontSize="10">D6 (PWM)  : L298N ENB</text>
               <text x="352" y="238" fill="#ff2a2a" fontSize="10">D4 / D2   : L298N IN3/IN4</text>
 
-              <line x1="457" y1="266" x2="457" y2="286" stroke="#00e676" strokeWidth="2.5" />
+              <line
+                x1="457"
+                y1="266"
+                x2="457"
+                y2="286"
+                stroke={activeFault === "no_gnd" ? "#ff2a2a" : "#00e676"}
+                strokeWidth="2.5"
+                strokeDasharray={activeFault === "no_gnd" ? "4,4" : "none"}
+              />
 
               {/* L298N DRIVER */}
               <rect
@@ -285,9 +432,10 @@ export default function HardwarePage() {
                 fill="#111111"
                 stroke="#ff2a2a"
                 strokeWidth="2"
+                opacity={activeFault === "direct_gpio" ? 0.3 : 1}
               />
               <text x="782" y="48" textAnchor="middle" fill="#ff2a2a" fontSize="13" fontWeight="bold">
-                L298N DUAL H-BRIDGE
+                {activeFault === "direct_gpio" ? "BYPASSED (NO DRIVER!)" : "L298N DUAL H-BRIDGE"}
               </text>
               <text x="685" y="72" fill="#f2efe9" fontSize="10">ENA(D5) IN1(D7) IN2(D8)</text>
               <text x="685" y="90" fill="#f2efe9" fontSize="10">ENB(D6) IN3(D4) IN4(D2)</text>
@@ -295,9 +443,34 @@ export default function HardwarePage() {
               <text x="685" y="132" fill="#ffb300" fontSize="10">OUT3/OUT4 → Right Motors</text>
               <text x="685" y="152" fill="#00e676" fontSize="10">12V In · 5V Reg Out · GND</text>
 
-              <line x1="580" y1="185" x2="670" y2="75" stroke="#ff2a2a" strokeWidth="2.5" />
-              <line x1="580" y1="220" x2="670" y2="95" stroke="#ff2a2a" strokeWidth="2.5" />
+              <line
+                x1="580"
+                y1="185"
+                x2="670"
+                y2={activeFault === "swap_in1_in2" ? "95" : "75"}
+                stroke="#ff2a2a"
+                strokeWidth="2.5"
+              />
+              <line
+                x1="580"
+                y1="220"
+                x2="670"
+                y2={activeFault === "swap_in1_in2" ? "75" : "95"}
+                stroke="#ff2a2a"
+                strokeWidth="2.5"
+              />
               <line x1="782" y1="170" x2="782" y2="286" stroke="#88857e" strokeWidth="2" />
+
+              {/* Direct GPIO Fault Wire */}
+              {activeFault === "direct_gpio" && (
+                <path
+                  d="M 580 200 L 625 200 L 625 225 L 670 225"
+                  fill="none"
+                  stroke="#ff2a2a"
+                  strokeWidth="3.5"
+                  strokeDasharray="6,3"
+                />
+              )}
 
               {/* MOTORS & BATTERY */}
               <rect
@@ -306,14 +479,23 @@ export default function HardwarePage() {
                 width="225"
                 height="78"
                 fill="#111111"
-                stroke="#00e676"
+                stroke={activeFault === "brownout" ? "#ff2a2a" : "#00e676"}
                 strokeWidth="2"
               />
               <text x="782" y="210" textAnchor="middle" fill="#00e676" fontSize="12" fontWeight="bold">
                 1:48 MOTORS + 7.4V PACK
               </text>
               <text x="685" y="230" fill="#f2efe9" fontSize="10">4x Geared DC Motors (65mm)</text>
-              <text x="685" y="248" fill="#ffb300" fontSize="10">2x18650 Li-Ion → L298N 12V</text>
+              <text
+                x="685"
+                y="248"
+                fill={activeFault === "brownout" ? "#ff2a2a" : "#ffb300"}
+                fontSize="10"
+              >
+                {activeFault === "brownout"
+                  ? "SAG FAULT: 4.8V (<7.0V MIN!)"
+                  : "2x18650 Li-Ion → L298N 12V"}
+              </text>
             </svg>
           </div>
         </section>

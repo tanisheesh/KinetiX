@@ -3,7 +3,10 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import Navbar from "@/components/navbar";
 import Footer from "@/components/footer";
-import KinetiXStage3D, { StageTelemetry } from "@/components/kinetix-stage-3d";
+import KinetiXStage3D, {
+  StageTelemetry,
+  WiringFaultConfig,
+} from "@/components/kinetix-stage-3d";
 import {
   ArenaObstacle,
   FSM_STAGES,
@@ -12,6 +15,19 @@ import {
   STATE_MACHINE_CODE,
   TWELVE_STEPS,
 } from "@/lib/kinetix-data";
+import { soundEngine } from "@/lib/sound-engine";
+
+interface TelemetrySample {
+  ts: string;
+  state: string;
+  step: number;
+  distanceCm: number;
+  echoUs: number;
+  gripAngle: number;
+  leftPwm: number;
+  motorCurrentMa: number;
+  batteryVoltage: number;
+}
 
 export default function PlaygroundPage() {
   const [isRunning, setIsRunning] = useState(true);
@@ -19,9 +35,21 @@ export default function PlaygroundPage() {
   const [mode, setMode] = useState<"auto" | "manual">("auto");
   const [resetId, setResetId] = useState(1);
 
+  // Live Flashable Firmware Parameters (Upgrade #1)
   const [obstacleThresholdCm, setObstacleThresholdCm] = useState(20);
-  const [pickDistCm] = useState(5);
+  const [pickDistCm, setPickDistCm] = useState(5);
+  const [gripClosedDeg, setGripClosedDeg] = useState(30);
+  const [spinDurationMs, setSpinDurationMs] = useState(450);
   const [motorPwm, setMotorPwm] = useState(170);
+
+  // Draft values inside the C++ Firmware Patcher
+  const [codeTab, setCodeTab] = useState<"trace" | "patch">("trace");
+  const [draftPickCm, setDraftPickCm] = useState(5);
+  const [draftAvoidCm, setDraftAvoidCm] = useState(20);
+  const [draftGripDeg, setDraftGripDeg] = useState(30);
+  const [draftSpinMs, setDraftSpinMs] = useState(450);
+  const [draftPwm, setDraftPwm] = useState(170);
+  const [flashBanner, setFlashBanner] = useState<string | null>(null);
 
   const [scenarioId, setScenarioId] = useState("standard");
   const [obstacles, setObstacles] = useState<ArenaObstacle[]>(
@@ -35,8 +63,20 @@ export default function PlaygroundPage() {
   >("orbit");
   const [selectedPart, setSelectedPart] = useState("arduino");
 
+  // Upgrades #2, #3, #4, #6, #7 Toggles
   const [yoloEnabled, setYoloEnabled] = useState(false);
   const [slamEnabled, setSlamEnabled] = useState(false);
+  const [pipEnabled, setPipEnabled] = useState(true);
+  const [ghostRaceEnabled, setGhostRaceEnabled] = useState(false);
+  const [multiSortEnabled, setMultiSortEnabled] = useState(false);
+  const [wallDrawMode, setWallDrawMode] = useState(false);
+  const [audioEnabled, setAudioEnabled] = useState(false);
+
+  const [wiringFaults, setWiringFaults] = useState<WiringFaultConfig>({
+    noCommonGnd: false,
+    swapLeftPolarity: false,
+    lowBatteryBrownout: false,
+  });
 
   const [manualKeys, setManualKeys] = useState({
     w: false,
@@ -65,12 +105,32 @@ export default function PlaygroundPage() {
     in2: 0,
     in3: 1,
     in4: 0,
+    motorCurrentMa: 310,
+    batteryVoltage: 7.25,
+    sortedCount: 0,
+    totalPayloads: 1,
+    ghostStatus: "FIXED-PATH OPEN LOOP",
   });
 
+  // Blackbox history buffer for Upgrade #5 Strip Chart & CSV/JSON Export
+  const historyRef = useRef<TelemetrySample[]>([]);
   const scopeCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const stripChartRef = useRef<HTMLCanvasElement | null>(null);
 
   const handleTelemetryUpdate = useCallback((t: StageTelemetry) => {
     setTelemetry(t);
+    const sample: TelemetrySample = {
+      ts: new Date().toISOString().slice(11, 22),
+      state: t.state,
+      step: t.stepNum,
+      distanceCm: t.distanceCm,
+      echoUs: t.echoUs,
+      gripAngle: t.gripAngle,
+      leftPwm: t.leftPwm,
+      motorCurrentMa: t.motorCurrentMa,
+      batteryVoltage: t.batteryVoltage,
+    };
+    historyRef.current = [...historyRef.current.slice(-119), sample];
   }, []);
 
   // Draw HC-SR04 Time-of-Flight Oscilloscope Waveform
@@ -99,7 +159,6 @@ export default function PlaygroundPage() {
       ctx.stroke();
     }
 
-    // CH1: TRIG (D10) 10µs HIGH Pulse
     ctx.strokeStyle = "#ffb300";
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -115,7 +174,6 @@ export default function PlaygroundPage() {
     ctx.font = "10px 'IBM Plex Mono', monospace";
     ctx.fillText("CH1: TRIG (D10) 10µs", 48, 20);
 
-    // CH2: ECHO (D11) Time-of-Flight Pulse
     const echoPx = Math.max(14, Math.min(w - 80, (telemetry.distanceCm / 120) * (w - 80)));
     const isClose = telemetry.distanceCm <= obstacleThresholdCm;
     const echoCol = isClose ? "#ff2a2a" : "#00e676";
@@ -138,6 +196,113 @@ export default function PlaygroundPage() {
     ctx.fillText(`CH2: ECHO (D11) t = ${telemetry.echoUs} µs`, 54, 55);
   }, [telemetry.distanceCm, telemetry.echoUs, obstacleThresholdCm]);
 
+  // Upgrade #5: Draw Real-Time Multi-Channel Telemetry Strip Chart (Distance, Current, Voltage)
+  useEffect(() => {
+    const canvas = stripChartRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const w = canvas.width;
+    const h = canvas.height;
+    const samples = historyRef.current;
+
+    ctx.clearRect(0, 0, w, h);
+
+    // Background Grid
+    ctx.strokeStyle = "#1c1c1a";
+    ctx.lineWidth = 1;
+    for (let x = 0; x < w; x += 40) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, h);
+      ctx.stroke();
+    }
+    for (let y = 0; y < h; y += 28) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(w, y);
+      ctx.stroke();
+    }
+
+    // Threshold horizontal dashed line (e.g. 20 cm)
+    const threshY = h - (obstacleThresholdCm / 120) * (h - 16) - 8;
+    ctx.strokeStyle = "rgba(255, 42, 42, 0.45)";
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(0, threshY);
+    ctx.lineTo(w, threshY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    if (samples.length < 2) return;
+
+    const plotTrace = (getVal: (s: TelemetrySample) => number, maxVal: number, color: string) => {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      samples.forEach((s, idx) => {
+        const x = (idx / 119) * w;
+        const norm = Math.max(0, Math.min(1, getVal(s) / maxVal));
+        const y = h - norm * (h - 16) - 8;
+        if (idx === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    };
+
+    // Trace 1: Sonar Distance (0 - 120 cm) in Amber
+    plotTrace((s) => s.distanceCm, 120, "#ffb300");
+    // Trace 2: Motor Current (0 - 1000 mA) in Green
+    plotTrace((s) => s.motorCurrentMa, 1000, "#00e676");
+    // Trace 3: Battery Voltage (0 - 9.0 V) in Cyan
+    plotTrace((s) => s.batteryVoltage, 9.0, "#00e5ff");
+  }, [telemetry, obstacleThresholdCm]);
+
+  const handleFlashFirmware = () => {
+    setPickDistCm(draftPickCm);
+    setObstacleThresholdCm(draftAvoidCm);
+    setGripClosedDeg(draftGripDeg);
+    setSpinDurationMs(draftSpinMs);
+    setMotorPwm(draftPwm);
+    soundEngine.playFlashSuccess();
+    setFlashBanner(
+      `AVRDUDE // FLASHED 3,412 BYTES TO ATMEGA328P (PICK≤${draftPickCm}cm, AVOID≤${draftAvoidCm}cm, GRIP=${draftGripDeg}°, SPIN=${draftSpinMs}ms)`
+    );
+    setTimeout(() => setFlashBanner(null), 4000);
+  };
+
+  const handleExportBlackbox = (format: "csv" | "json") => {
+    const data = historyRef.current;
+    if (data.length === 0) return;
+    let content = "";
+    let mime = "text/plain";
+    let ext = "csv";
+
+    if (format === "json") {
+      content = JSON.stringify(data, null, 2);
+      mime = "application/json";
+      ext = "json";
+    } else {
+      const headers =
+        "timestamp,state,step,distance_cm,echo_us,grip_angle_deg,pwm,motor_current_ma,battery_v";
+      const rows = data.map(
+        (r) =>
+          `${r.ts},${r.state},${r.step},${r.distanceCm},${r.echoUs},${r.gripAngle},${r.leftPwm},${r.motorCurrentMa},${r.batteryVoltage}`
+      );
+      content = [headers, ...rows].join("\n");
+      mime = "text/csv";
+      ext = "csv";
+    }
+
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `kinetix-blackbox-telemetry.${ext}`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const handleSelectScenario = (id: string) => {
     const found = PRESET_SCENARIOS.find((s) => s.id === id);
     if (!found) return;
@@ -154,6 +319,11 @@ export default function PlaygroundPage() {
     const found =
       PRESET_SCENARIOS.find((s) => s.id === scenarioId) || PRESET_SCENARIOS[0];
     setCylinderPos({ ...found.cylinderPos });
+    setWiringFaults({
+      noCommonGnd: false,
+      swapLeftPolarity: false,
+      lowBatteryBrownout: false,
+    });
     setIsRunning(true);
     setResetId((r) => r + 1);
   };
@@ -221,21 +391,43 @@ export default function PlaygroundPage() {
   const activePartObj =
     HARDWARE_MODULES.find((m) => m.id === selectedPart) || HARDWARE_MODULES[0];
 
+  const anyFaultActive =
+    wiringFaults.noCommonGnd ||
+    wiringFaults.swapLeftPolarity ||
+    wiringFaults.lowBatteryBrownout;
+
   return (
     <div className="min-h-screen flex flex-col overflow-x-hidden">
       <Navbar />
 
       <main className="flex-1 max-w-[1400px] w-full mx-auto px-3 sm:px-6 lg:px-8 pt-4 sm:pt-6 space-y-5">
+        {/* Flash Success Banner */}
+        {flashBanner && (
+          <div className="border border-[#00e676] bg-[#00e676]/15 px-4 py-2.5 font-mono text-xs text-[#00e676] font-bold flex items-center justify-between">
+            <span>⚡ {flashBanner}</span>
+            <button onClick={() => setFlashBanner(null)} className="underline">
+              DISMISS
+            </button>
+          </div>
+        )}
+
         {/* ================= 1. DEDICATED STAGE FSM PIPELINE BAR ================= */}
         <section className="panel-frame">
           <div className="panel-header">
             <span>
               AUTONOMOUS STAGE PIPELINE // 5-STATE DETERMINISTIC FINITE AUTOMATON (SLIDE 24)
             </span>
-            <span className="text-[#00e676] font-bold">
-              ● ACTIVE STEP {String(activeStepObj.step).padStart(2, "0")}/12 · PHASE{" "}
-              {activeStepObj.phase}
-            </span>
+            <div className="flex items-center gap-3">
+              {multiSortEnabled && (
+                <span className="text-[#ffb300] font-bold">
+                  PAYLOADS SORTED: {telemetry.sortedCount}/{telemetry.totalPayloads}
+                </span>
+              )}
+              <span className="text-[#00e676] font-bold">
+                ● ACTIVE STEP {String(activeStepObj.step).padStart(2, "0")}/12 · PHASE{" "}
+                {activeStepObj.phase}
+              </span>
+            </div>
           </div>
 
           {/* 5 Stages Grid */}
@@ -278,13 +470,21 @@ export default function PlaygroundPage() {
           {/* Live Stage Status Readout */}
           <div className="px-4 py-2.5 bg-[#080808] flex flex-col sm:flex-row sm:items-center justify-between gap-2 font-mono text-xs">
             <div className="flex items-center gap-2.5 min-w-0">
-              <span className="px-2 py-0.5 bg-[#ffb300] text-[#080808] text-[10px] font-bold shrink-0">
-                STEP {String(activeStepObj.step).padStart(2, "0")} // {activeStepObj.title}
+              <span
+                className={`px-2 py-0.5 text-[10px] font-bold shrink-0 ${
+                  anyFaultActive
+                    ? "bg-[#ff2a2a] text-[#f2efe9]"
+                    : "bg-[#ffb300] text-[#080808]"
+                }`}
+              >
+                {anyFaultActive
+                  ? "HARDWARE FAULT ACTIVE"
+                  : `STEP ${String(activeStepObj.step).padStart(2, "0")} // ${activeStepObj.title}`}
               </span>
               <span className="text-[#f2efe9] truncate">{telemetry.subStageText}</span>
             </div>
             <span className="text-[11px] text-[#00e676] shrink-0">
-              HW: {activeStepObj.hw}
+              {telemetry.motorCurrentMa} mA · {telemetry.batteryVoltage} V
             </span>
           </div>
         </section>
@@ -293,7 +493,7 @@ export default function PlaygroundPage() {
         <section className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
           {/* LEFT 8 COLS: DEDICATED 3D DIGITAL TWIN STAGE */}
           <div className="lg:col-span-8 panel-frame flex flex-col">
-            {/* Stage Header with Camera Switcher */}
+            {/* Stage Header with Camera Switcher + Audio + PiP */}
             <div className="panel-header">
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 bg-[#ffb300] inline-block" />
@@ -308,14 +508,14 @@ export default function PlaygroundPage() {
                     { id: "orbit", label: "ORBIT 3D" },
                     { id: "chase", label: "CHASE CAM" },
                     { id: "pov", label: "SONAR POV" },
-                    { id: "top", label: "BLUEPRINT TOP" },
-                    { id: "xray", label: "EXPLODE X-RAY" },
+                    { id: "top", label: "BLUEPRINT" },
+                    { id: "xray", label: "X-RAY" },
                   ] as const
                 ).map((cm) => (
                   <button
                     key={cm.id}
                     onClick={() => setCameraMode(cm.id)}
-                    className={`px-2 py-1 font-mono text-[10px] border transition ${
+                    className={`px-2 py-1 font-mono text-[10px] border transition cursor-pointer ${
                       cameraMode === cm.id
                         ? "bg-[#ffb300] text-[#080808] border-[#ffb300] font-bold"
                         : "bg-[#111111] text-[#88857e] border-[#222220] hover:text-[#f2efe9]"
@@ -324,10 +524,36 @@ export default function PlaygroundPage() {
                     {cm.label}
                   </button>
                 ))}
+                <button
+                  onClick={() => setPipEnabled((p) => !p)}
+                  className={`px-2 py-1 font-mono text-[10px] border cursor-pointer ${
+                    pipEnabled
+                      ? "border-[#00e676] text-[#00e676] bg-[#111a14] font-bold"
+                      : "border-[#222220] text-[#88857e]"
+                  }`}
+                  title="Toggle Picture-in-Picture Nose-Cam"
+                >
+                  PiP CAM
+                </button>
+                <button
+                  onClick={() => {
+                    const next = !audioEnabled;
+                    setAudioEnabled(next);
+                    soundEngine.setEnabled(next);
+                  }}
+                  className={`px-2 py-1 font-mono text-[10px] border cursor-pointer ${
+                    audioEnabled
+                      ? "bg-[#00e5ff] text-[#080808] border-[#00e5ff] font-bold"
+                      : "border-[#222220] text-[#88857e]"
+                  }`}
+                  title="Web Audio API Ultrasonic & Servo Sound Synthesis"
+                >
+                  {audioEnabled ? "AUDIO: ON" : "AUDIO: OFF"}
+                </button>
               </div>
             </div>
 
-            {/* Scenario & Playback Strip */}
+            {/* Scenario, A/B Ghost Race & Multi-Sort Strip */}
             <div className="px-3.5 py-2.5 border-b border-[#222220] bg-[#111111] flex flex-wrap items-center justify-between gap-2 font-mono text-xs">
               <div className="flex flex-wrap items-center gap-1.5">
                 <button
@@ -367,7 +593,7 @@ export default function PlaygroundPage() {
                     key={sc.id}
                     onClick={() => handleSelectScenario(sc.id)}
                     className={`px-2 py-1 border text-[10px] cursor-pointer ${
-                      scenarioId === sc.id
+                      scenarioId === sc.id && !multiSortEnabled
                         ? "border-[#00e676] text-[#00e676] bg-[#111a14] font-bold"
                         : "border-[#222220] text-[#88857e] hover:text-[#f2efe9]"
                     }`}
@@ -375,6 +601,29 @@ export default function PlaygroundPage() {
                     {sc.code}
                   </button>
                 ))}
+                <button
+                  onClick={() => setMultiSortEnabled((m) => !m)}
+                  className={`px-2.5 py-1 border text-[10px] cursor-pointer ${
+                    multiSortEnabled
+                      ? "bg-[#ffb300] text-[#080808] border-[#ffb300] font-bold"
+                      : "border-[#3a3834] text-[#ffb300]"
+                  }`}
+                >
+                  3-OBJECT SORT (S27)
+                </button>
+                <button
+                  onClick={() => {
+                    setGhostRaceEnabled((g) => !g);
+                    setResetId((r) => r + 1);
+                  }}
+                  className={`px-2.5 py-1 border text-[10px] cursor-pointer ${
+                    ghostRaceEnabled
+                      ? "bg-[#ff2a2a] text-[#f2efe9] border-[#ff2a2a] font-bold"
+                      : "border-[#3a3834] text-[#ff2a2a]"
+                  }`}
+                >
+                  A/B GHOST RACE
+                </button>
               </div>
             </div>
 
@@ -387,6 +636,8 @@ export default function PlaygroundPage() {
                 resetId={resetId}
                 obstacleThresholdCm={obstacleThresholdCm}
                 pickDistCm={pickDistCm}
+                gripClosedDeg={gripClosedDeg}
+                spinDurationMs={spinDurationMs}
                 motorPwm={motorPwm}
                 obstacles={obstacles}
                 setObstacles={setObstacles}
@@ -398,80 +649,145 @@ export default function PlaygroundPage() {
                 setSelectedPart={setSelectedPart}
                 yoloEnabled={yoloEnabled}
                 slamEnabled={slamEnabled}
+                pipEnabled={pipEnabled}
+                ghostRaceEnabled={ghostRaceEnabled}
+                multiSortEnabled={multiSortEnabled}
+                wallDrawMode={wallDrawMode}
+                wiringFaults={wiringFaults}
                 manualKeys={manualKeys}
                 onTelemetryUpdate={handleTelemetryUpdate}
               />
             </div>
 
-            {/* Bottom Sandbox & Future Scope Controls Strip */}
-            <div className="p-3 border-t border-[#222220] bg-[#0b0b0b] flex flex-wrap items-center justify-between gap-2 font-mono text-[11px]">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-[#88857e] text-[10px] mr-1">SANDBOX:</span>
-                <button
-                  onClick={() => handleAddObstacle("crate")}
-                  className="px-2.5 py-1 border border-[#3a3834] bg-[#141413] text-[#f2efe9] hover:border-[#ffb300] cursor-pointer"
-                >
-                  + CRATE
-                </button>
-                <button
-                  onClick={() => handleAddObstacle("angled")}
-                  className="px-2.5 py-1 border border-[#3a3834] bg-[#141413] text-[#ffb300] hover:border-[#ffb300] cursor-pointer"
-                  title="Slide 26: 45° angled wall deflects ultrasound"
-                >
-                  + 45° WALL (S26)
-                </button>
-                <button
-                  onClick={() => handleAddObstacle("foam")}
-                  className="px-2.5 py-1 border border-[#3a3834] bg-[#141413] text-[#c084fc] hover:border-[#c084fc] cursor-pointer"
-                  title="Slide 26: Soft foam absorbs 40 kHz burst"
-                >
-                  + FOAM (S26)
-                </button>
-                <button
-                  onClick={() => setObstacles([])}
-                  className="px-2 py-1 border border-[#222220] text-[#88857e] hover:text-[#ff2a2a] cursor-pointer"
-                >
-                  CLEAR
-                </button>
+            {/* Bottom Sandbox, Maze Builder, Upgrades & Fault Injector Strip */}
+            <div className="p-3 border-t border-[#222220] bg-[#0b0b0b] space-y-2 font-mono text-[11px]">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[#88857e] text-[10px] mr-1">ARENA:</span>
+                  <button
+                    onClick={() => handleAddObstacle("crate")}
+                    className="px-2 py-1 border border-[#3a3834] bg-[#141413] text-[#f2efe9] hover:border-[#ffb300] cursor-pointer"
+                  >
+                    + CRATE
+                  </button>
+                  <button
+                    onClick={() => handleAddObstacle("angled")}
+                    className="px-2 py-1 border border-[#3a3834] bg-[#141413] text-[#ffb300] hover:border-[#ffb300] cursor-pointer"
+                  >
+                    + 45° WALL
+                  </button>
+                  <button
+                    onClick={() => handleAddObstacle("foam")}
+                    className="px-2 py-1 border border-[#3a3834] bg-[#141413] text-[#c084fc] hover:border-[#c084fc] cursor-pointer"
+                  >
+                    + FOAM
+                  </button>
+                  <button
+                    onClick={() => setWallDrawMode((w) => !w)}
+                    className={`px-2 py-1 border cursor-pointer ${
+                      wallDrawMode
+                        ? "bg-[#00e5ff] text-[#080808] border-[#00e5ff] font-bold"
+                        : "border-[#3a3834] text-[#00e5ff]"
+                    }`}
+                  >
+                    {wallDrawMode ? "CLICK FLOOR: ON" : "DRAW MAZE WALL"}
+                  </button>
+                  <button
+                    onClick={() => setObstacles([])}
+                    className="px-2 py-1 border border-[#222220] text-[#88857e] hover:text-[#ff2a2a] cursor-pointer"
+                  >
+                    CLEAR
+                  </button>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    onClick={() => setYoloEnabled((v) => !v)}
+                    className={`px-2 py-1 border cursor-pointer ${
+                      yoloEnabled
+                        ? "bg-[#00e676] text-[#080808] border-[#00e676] font-bold"
+                        : "border-[#3a3834] text-[#88857e]"
+                    }`}
+                  >
+                    YOLO HUD: {yoloEnabled ? "ON" : "OFF"}
+                  </button>
+                  <button
+                    onClick={() => setSlamEnabled((v) => !v)}
+                    className={`px-2 py-1 border cursor-pointer ${
+                      slamEnabled
+                        ? "bg-[#00e5ff] text-[#080808] border-[#00e5ff] font-bold"
+                        : "border-[#3a3834] text-[#88857e]"
+                    }`}
+                  >
+                    360° SLAM: {slamEnabled ? "ON" : "OFF"}
+                  </button>
+                  <button
+                    onClick={() => setMode((m) => (m === "manual" ? "auto" : "manual"))}
+                    className={`px-2 py-1 border cursor-pointer ${
+                      mode === "manual"
+                        ? "bg-[#ffb300] text-[#080808] border-[#ffb300] font-bold"
+                        : "border-[#3a3834] text-[#88857e]"
+                    }`}
+                  >
+                    WASD: {mode === "manual" ? "ON" : "OFF"}
+                  </button>
+                </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-[#88857e] text-[10px] mr-1">UPGRADES (S27):</span>
-                <button
-                  onClick={() => setYoloEnabled((v) => !v)}
-                  className={`px-2.5 py-1 border cursor-pointer ${
-                    yoloEnabled
-                      ? "bg-[#00e676] text-[#080808] border-[#00e676] font-bold"
-                      : "border-[#3a3834] text-[#88857e]"
-                  }`}
-                >
-                  YOLO VISION: {yoloEnabled ? "ON" : "OFF"}
-                </button>
-                <button
-                  onClick={() => setSlamEnabled((v) => !v)}
-                  className={`px-2.5 py-1 border cursor-pointer ${
-                    slamEnabled
-                      ? "bg-[#00e5ff] text-[#080808] border-[#00e5ff] font-bold"
-                      : "border-[#3a3834] text-[#88857e]"
-                  }`}
-                >
-                  360° SLAM: {slamEnabled ? "ON" : "OFF"}
-                </button>
-                <button
-                  onClick={() => setMode((m) => (m === "manual" ? "auto" : "manual"))}
-                  className={`px-2.5 py-1 border cursor-pointer ${
-                    mode === "manual"
-                      ? "bg-[#ffb300] text-[#080808] border-[#ffb300] font-bold"
-                      : "border-[#3a3834] text-[#88857e]"
-                  }`}
-                >
-                  WASD TELEOP: {mode === "manual" ? "ON" : "OFF"}
-                </button>
+              {/* Upgrade #4: Live Wiring Fault Injector Strip */}
+              <div className="pt-2 border-t border-[#222220] flex flex-wrap items-center justify-between gap-2 text-[10px]">
+                <span className="text-[#ff2a2a] font-bold">
+                  WIRING FAULT INJECTOR (SLIDES 10, 16, 18):
+                </span>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    onClick={() =>
+                      setWiringFaults((f) => ({ ...f, noCommonGnd: !f.noCommonGnd }))
+                    }
+                    className={`px-2 py-0.5 border cursor-pointer ${
+                      wiringFaults.noCommonGnd
+                        ? "bg-[#ff2a2a] text-[#f2efe9] border-[#ff2a2a] font-bold"
+                        : "border-[#3a3834] text-[#88857e]"
+                    }`}
+                  >
+                    DROP COMMON GND (S18)
+                  </button>
+                  <button
+                    onClick={() =>
+                      setWiringFaults((f) => ({
+                        ...f,
+                        swapLeftPolarity: !f.swapLeftPolarity,
+                      }))
+                    }
+                    className={`px-2 py-0.5 border cursor-pointer ${
+                      wiringFaults.swapLeftPolarity
+                        ? "bg-[#ff2a2a] text-[#f2efe9] border-[#ff2a2a] font-bold"
+                        : "border-[#3a3834] text-[#88857e]"
+                    }`}
+                  >
+                    SWAP IN1↔IN2 (S11)
+                  </button>
+                  <button
+                    onClick={() =>
+                      setWiringFaults((f) => ({
+                        ...f,
+                        lowBatteryBrownout: !f.lowBatteryBrownout,
+                      }))
+                    }
+                    className={`px-2 py-0.5 border cursor-pointer ${
+                      wiringFaults.lowBatteryBrownout
+                        ? "bg-[#ff2a2a] text-[#f2efe9] border-[#ff2a2a] font-bold"
+                        : "border-[#3a3834] text-[#88857e]"
+                    }`}
+                  >
+                    4.8V BROWNOUT (S16)
+                  </button>
+                </div>
               </div>
             </div>
           </div>
 
-          {/* RIGHT 4 COLS: HARDWARE TELEMETRY STACK (OR X-RAY INSPECTOR) */}
+          {/* RIGHT 4 COLS: HARDWARE TELEMETRY STACK + LIVE C++ IDE */}
           <div className="lg:col-span-4 space-y-4">
             {cameraMode === "xray" ? (
               <div className="panel-frame">
@@ -567,21 +883,6 @@ export default function PlaygroundPage() {
                         <div className="text-[#00e676] font-bold">{telemetry.distanceCm} cm</div>
                       </div>
                     </div>
-
-                    <div className="pt-1 space-y-1">
-                      <div className="flex justify-between text-[10px]">
-                        <span className="text-[#88857e]">AVOID THRESHOLD (SLIDE 21):</span>
-                        <span className="text-[#ffb300] font-bold">{obstacleThresholdCm} cm</span>
-                      </div>
-                      <input
-                        type="range"
-                        min={12}
-                        max={35}
-                        value={obstacleThresholdCm}
-                        onChange={(e) => setObstacleThresholdCm(Number(e.target.value))}
-                        className="w-full accent-[#ffb300] cursor-pointer"
-                      />
-                    </div>
                   </div>
                 </div>
 
@@ -589,10 +890,12 @@ export default function PlaygroundPage() {
                 <div className="panel-frame">
                   <div className="panel-header">
                     <span>L298N // H-BRIDGE SWITCHES (SLIDES 10–11)</span>
-                    <span className="text-[#ffb300]">PWM: {telemetry.leftPwm}/255</span>
+                    <span className="text-[#ffb300]">
+                      {telemetry.motorCurrentMa}mA · {telemetry.batteryVoltage}V
+                    </span>
                   </div>
 
-                  <div className="p-3.5 space-y-3 font-mono text-xs">
+                  <div className="p-3.5 space-y-2.5 font-mono text-xs">
                     <div className="flex items-center gap-3 bg-[#080808] border border-[#222220] p-2.5">
                       <svg viewBox="0 0 200 105" className="w-40 h-20 shrink-0">
                         <line x1="20" y1="10" x2="180" y2="10" stroke="#ffb300" strokeWidth="2" />
@@ -700,58 +1003,189 @@ export default function PlaygroundPage() {
                         </div>
                       </div>
                     </div>
-
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-[10px]">
-                        <span className="text-[#88857e]">ENA / ENB PWM SPEED:</span>
-                        <span className="text-[#00e676] font-bold">{motorPwm} / 255</span>
-                      </div>
-                      <input
-                        type="range"
-                        min={115}
-                        max={255}
-                        value={motorPwm}
-                        onChange={(e) => setMotorPwm(Number(e.target.value))}
-                        className="w-full accent-[#00e676] cursor-pointer"
-                      />
-                    </div>
                   </div>
                 </div>
 
-                {/* PANEL C: SG90 SERVO & LIVE C++ FSM TRACE */}
+                {/* PANEL C: UPGRADE #1 — LIVE TRACE OR IN-BROWSER C++ FIRMWARE PATCHER */}
                 <div className="panel-frame">
                   <div className="panel-header">
-                    <span>SG90 PWM &amp; C++ FSM TRACE (SLIDES 14 &amp; 24)</span>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => setCodeTab("trace")}
+                        className={`px-2 py-0.5 text-[10px] border cursor-pointer ${
+                          codeTab === "trace"
+                            ? "bg-[#ffb300] text-[#080808] border-[#ffb300] font-bold"
+                            : "bg-[#111111] text-[#88857e] border-[#222220]"
+                        }`}
+                      >
+                        LIVE C++ TRACE
+                      </button>
+                      <button
+                        onClick={() => setCodeTab("patch")}
+                        className={`px-2 py-0.5 text-[10px] border cursor-pointer ${
+                          codeTab === "patch"
+                            ? "bg-[#00e676] text-[#080808] border-[#00e676] font-bold"
+                            : "bg-[#111111] text-[#88857e] border-[#222220]"
+                        }`}
+                      >
+                        EDIT &amp; FLASH C++ ⚡
+                      </button>
+                    </div>
                     <span className="text-[#00e5ff] font-bold">
                       D9: {telemetry.gripAngle}° ({telemetry.servoPulseMs}ms)
                     </span>
                   </div>
 
-                  <div className="p-3 bg-[#080808] font-mono text-[10.5px] space-y-0.5 overflow-x-auto custom-scrollbar">
-                    {STATE_MACHINE_CODE.map((row) => {
-                      const active = telemetry.activeCodeLine === row.line;
-                      return (
-                        <div
-                          key={row.line}
-                          className={`px-1.5 py-0.5 flex items-center gap-2 ${
-                            active
-                              ? "bg-[#ffb300] text-[#080808] font-bold"
-                              : "text-[#88857e]"
-                          }`}
-                        >
-                          <span className="w-4 text-right opacity-60">{row.line}</span>
-                          <span className="whitespace-pre">{row.code}</span>
+                  {codeTab === "trace" ? (
+                    <div className="p-3 bg-[#080808] font-mono text-[10.5px] space-y-0.5 overflow-x-auto custom-scrollbar">
+                      {STATE_MACHINE_CODE.map((row) => {
+                        const active = telemetry.activeCodeLine === row.line;
+                        return (
+                          <div
+                            key={row.line}
+                            className={`px-1.5 py-0.5 flex items-center gap-2 ${
+                              active
+                                ? "bg-[#ffb300] text-[#080808] font-bold"
+                                : "text-[#88857e]"
+                            }`}
+                          >
+                            <span className="w-4 text-right opacity-60">{row.line}</span>
+                            <span className="whitespace-pre">{row.code}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="p-3.5 bg-[#080808] font-mono text-xs space-y-2.5">
+                      <div className="text-[10px] text-[#00e676]">
+                        // MODIFY CONSTANTS &amp; FLASH TO VIRTUAL ATMEGA328P
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-[11px]">
+                        <label className="border border-[#222220] bg-[#111111] p-2 block">
+                          <span className="text-[9px] text-[#88857e] block">
+                            PICK_DIST_CM (3–10)
+                          </span>
+                          <input
+                            type="number"
+                            min={3}
+                            max={10}
+                            value={draftPickCm}
+                            onChange={(e) => setDraftPickCm(Number(e.target.value))}
+                            className="w-full bg-transparent text-[#ffb300] font-bold focus:outline-none mt-0.5"
+                          />
+                        </label>
+
+                        <label className="border border-[#222220] bg-[#111111] p-2 block">
+                          <span className="text-[9px] text-[#88857e] block">
+                            AVOID_DIST_CM (12–35)
+                          </span>
+                          <input
+                            type="number"
+                            min={12}
+                            max={35}
+                            value={draftAvoidCm}
+                            onChange={(e) => setDraftAvoidCm(Number(e.target.value))}
+                            className="w-full bg-transparent text-[#00e676] font-bold focus:outline-none mt-0.5"
+                          />
+                        </label>
+
+                        <label className="border border-[#222220] bg-[#111111] p-2 block">
+                          <span className="text-[9px] text-[#88857e] block">
+                            GRIP_CLOSED_DEG (&gt;52° SLIPS!)
+                          </span>
+                          <input
+                            type="number"
+                            min={20}
+                            max={75}
+                            value={draftGripDeg}
+                            onChange={(e) => setDraftGripDeg(Number(e.target.value))}
+                            className="w-full bg-transparent text-[#00e5ff] font-bold focus:outline-none mt-0.5"
+                          />
+                        </label>
+
+                        <label className="border border-[#222220] bg-[#111111] p-2 block">
+                          <span className="text-[9px] text-[#88857e] block">
+                            SPIN_DELAY_MS (250–900)
+                          </span>
+                          <input
+                            type="number"
+                            min={250}
+                            max={900}
+                            step={50}
+                            value={draftSpinMs}
+                            onChange={(e) => setDraftSpinMs(Number(e.target.value))}
+                            className="w-full bg-transparent text-[#f2efe9] font-bold focus:outline-none mt-0.5"
+                          />
+                        </label>
+                      </div>
+
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-[10px]">
+                          <span className="text-[#88857e]">CRUISE_PWM (ENA/ENB):</span>
+                          <span className="text-[#ffb300] font-bold">{draftPwm} / 255</span>
                         </div>
-                      );
-                    })}
-                  </div>
+                        <input
+                          type="range"
+                          min={115}
+                          max={255}
+                          value={draftPwm}
+                          onChange={(e) => setDraftPwm(Number(e.target.value))}
+                          className="w-full accent-[#ffb300] cursor-pointer"
+                        />
+                      </div>
+
+                      <button
+                        onClick={handleFlashFirmware}
+                        className="brutal-btn brutal-btn-primary w-full !py-2 !text-xs"
+                      >
+                        ⚡ COMPILE &amp; FLASH TO VIRTUAL UNO
+                      </button>
+                    </div>
+                  )}
                 </div>
               </>
             )}
           </div>
         </section>
 
-        {/* ================= 3. 12-STEP MISSION MATRIX (SLIDES 19 & 20) ================= */}
+        {/* ================= 3. UPGRADE #5: REAL-TIME TELEMETRY STRIP CHART & BLACKBOX RECORDER ================= */}
+        <section className="panel-frame">
+          <div className="panel-header">
+            <div className="flex flex-wrap items-center gap-4">
+              <span>BLACKBOX TELEMETRY RECORDER // 120-SAMPLE ROLLING STRIP CHART</span>
+              <span className="text-[#ffb300]">■ SONAR d(cm)</span>
+              <span className="text-[#00e676]">■ MOTOR I(mA)</span>
+              <span className="text-[#00e5ff]">■ BATTERY V(volts)</span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handleExportBlackbox("csv")}
+                className="px-2.5 py-1 border border-[#3a3834] bg-[#141413] text-[#f2efe9] hover:border-[#ffb300] text-[10px] cursor-pointer"
+              >
+                EXPORT .CSV ↓
+              </button>
+              <button
+                onClick={() => handleExportBlackbox("json")}
+                className="px-2.5 py-1 border border-[#3a3834] bg-[#141413] text-[#00e676] hover:border-[#00e676] text-[10px] cursor-pointer"
+              >
+                EXPORT .JSON ↓
+              </button>
+            </div>
+          </div>
+
+          <div className="p-4 bg-[#080808]">
+            <canvas
+              ref={stripChartRef}
+              width={1280}
+              height={110}
+              className="w-full h-[110px] bg-[#0b0b0b] border border-[#222220]"
+            />
+          </div>
+        </section>
+
+        {/* ================= 4. 12-STEP MISSION MATRIX (SLIDES 19 & 20) ================= */}
         <section className="panel-frame">
           <div className="panel-header">
             <span>SYNCHRONIZED 12-STEP EXECUTION LOG (SLIDES 19 &amp; 20)</span>

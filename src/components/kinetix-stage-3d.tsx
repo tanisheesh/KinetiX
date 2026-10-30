@@ -7,8 +7,9 @@ import {
   HARDWARE_MODULES,
   RobotFsmState,
 } from "@/lib/kinetix-data";
+import { soundEngine } from "@/lib/sound-engine";
 
-export const WORLD_TO_CM = 10.0; // 1 world unit = 10 cm (2.0 units = 20 cm, 0.5 units = 5 cm)
+export const WORLD_TO_CM = 10.0;
 
 export interface StageTelemetry {
   x: number;
@@ -29,6 +30,17 @@ export interface StageTelemetry {
   in2: number;
   in3: number;
   in4: number;
+  motorCurrentMa: number;
+  batteryVoltage: number;
+  sortedCount: number;
+  totalPayloads: number;
+  ghostStatus: string;
+}
+
+export interface WiringFaultConfig {
+  noCommonGnd: boolean;
+  swapLeftPolarity: boolean;
+  lowBatteryBrownout: boolean;
 }
 
 interface KinetiXStage3DProps {
@@ -38,6 +50,8 @@ interface KinetiXStage3DProps {
   resetId: number;
   obstacleThresholdCm: number;
   pickDistCm: number;
+  gripClosedDeg: number;
+  spinDurationMs: number;
   motorPwm: number;
   obstacles: ArenaObstacle[];
   setObstacles: React.Dispatch<React.SetStateAction<ArenaObstacle[]>>;
@@ -49,6 +63,11 @@ interface KinetiXStage3DProps {
   setSelectedPart: (id: string) => void;
   yoloEnabled: boolean;
   slamEnabled: boolean;
+  pipEnabled: boolean;
+  ghostRaceEnabled: boolean;
+  multiSortEnabled: boolean;
+  wallDrawMode: boolean;
+  wiringFaults: WiringFaultConfig;
   manualKeys: {
     w: boolean;
     a: boolean;
@@ -70,6 +89,12 @@ interface ProjectedTag {
   y: number;
 }
 
+const MULTI_QUEUE_INIT = [
+  { id: 0, label: "CYL_AMBER", color: "#ffb300", startX: -3.2, startZ: -1.3, targetX: 5.2, targetZ: -1.5, done: false },
+  { id: 1, label: "CYL_GREEN", color: "#00e676", startX: -3.2, startZ: 0.0, targetX: 5.2, targetZ: 0.0, done: false },
+  { id: 2, label: "CYL_CYAN", color: "#00e5ff", startX: -3.2, startZ: 1.3, targetX: 5.2, targetZ: 1.5, done: false },
+];
+
 export default function KinetiXStage3D({
   isRunning,
   simSpeed,
@@ -77,6 +102,8 @@ export default function KinetiXStage3D({
   resetId,
   obstacleThresholdCm,
   pickDistCm,
+  gripClosedDeg,
+  spinDurationMs,
   motorPwm,
   obstacles,
   setObstacles,
@@ -88,6 +115,11 @@ export default function KinetiXStage3D({
   setSelectedPart,
   yoloEnabled,
   slamEnabled,
+  pipEnabled,
+  ghostRaceEnabled,
+  multiSortEnabled,
+  wallDrawMode,
+  wiringFaults,
   manualKeys,
   onTelemetryUpdate,
 }: KinetiXStage3DProps) {
@@ -105,6 +137,8 @@ export default function KinetiXStage3D({
     mode,
     obstacleThresholdCm,
     pickDistCm,
+    gripClosedDeg,
+    spinDurationMs,
     motorPwm,
     obstacles,
     cylinderPos,
@@ -113,6 +147,11 @@ export default function KinetiXStage3D({
     selectedPart,
     yoloEnabled,
     slamEnabled,
+    pipEnabled,
+    ghostRaceEnabled,
+    multiSortEnabled,
+    wallDrawMode,
+    wiringFaults,
     manualKeys,
   });
 
@@ -123,6 +162,8 @@ export default function KinetiXStage3D({
       mode,
       obstacleThresholdCm,
       pickDistCm,
+      gripClosedDeg,
+      spinDurationMs,
       motorPwm,
       obstacles,
       cylinderPos,
@@ -131,6 +172,11 @@ export default function KinetiXStage3D({
       selectedPart,
       yoloEnabled,
       slamEnabled,
+      pipEnabled,
+      ghostRaceEnabled,
+      multiSortEnabled,
+      wallDrawMode,
+      wiringFaults,
       manualKeys,
     };
   }, [
@@ -139,6 +185,8 @@ export default function KinetiXStage3D({
     mode,
     obstacleThresholdCm,
     pickDistCm,
+    gripClosedDeg,
+    spinDurationMs,
     motorPwm,
     obstacles,
     cylinderPos,
@@ -147,6 +195,11 @@ export default function KinetiXStage3D({
     selectedPart,
     yoloEnabled,
     slamEnabled,
+    pipEnabled,
+    ghostRaceEnabled,
+    multiSortEnabled,
+    wallDrawMode,
+    wiringFaults,
     manualKeys,
   ]);
 
@@ -177,14 +230,32 @@ export default function KinetiXStage3D({
     wheelRotR: 0,
     trailPoints: [{ x: -6.4, z: 0.0 }],
     lastTrailTime: 0,
+    // Multi-sort state
+    multiIdx: 0,
+    multiPayloads: MULTI_QUEUE_INIT.map((p) => ({ ...p, curX: p.startX, curZ: p.startZ })),
+    // A/B Ghost Rover state
+    ghostX: -6.4,
+    ghostZ: -0.55,
+    ghostCrashed: false,
+    ghostStatus: "DRIVING FIXED PATH",
   });
 
-  // Reset Robot on resetId change
+  // Reset Robot on resetId or multiSort toggle
   useEffect(() => {
     const rp = physRef.current;
     rp.x = -6.4;
     rp.z = 0.0;
-    rp.heading = Math.atan2(cylinderPos.z - rp.z, cylinderPos.x - rp.x);
+    rp.multiIdx = 0;
+    rp.multiPayloads = MULTI_QUEUE_INIT.map((p) => ({
+      ...p,
+      curX: p.startX,
+      curZ: p.startZ,
+      done: false,
+    }));
+    const firstPick = multiSortEnabled
+      ? { x: rp.multiPayloads[0].curX, z: rp.multiPayloads[0].curZ }
+      : cylinderPos;
+    rp.heading = Math.atan2(firstPick.z - rp.z, firstPick.x - rp.x);
     rp.state = "SEARCH";
     rp.subStageText = "BOOT COMPLETE // DRIVING TO PICK ZONE (HC-SR04 ACTIVE)";
     rp.stepNum = 2;
@@ -202,7 +273,11 @@ export default function KinetiXStage3D({
     rp.avoidTimer = 0;
     rp.stateTimer = 0;
     rp.trailPoints = [{ x: rp.x, z: rp.z }];
-  }, [resetId, cylinderPos.x, cylinderPos.z]);
+    rp.ghostX = -6.4;
+    rp.ghostZ = -0.55;
+    rp.ghostCrashed = false;
+    rp.ghostStatus = "FIXED-PATH OPEN LOOP";
+  }, [resetId, multiSortEnabled, cylinderPos.x, cylinderPos.z]);
 
   useEffect(() => {
     const container = mountRef.current;
@@ -220,6 +295,9 @@ export default function KinetiXStage3D({
     );
     camera.position.set(-0.5, 7.2, 9.6);
 
+    // Secondary PiP Nose-Cam for Upgrade #3
+    const pipCamera = new THREE.PerspectiveCamera(58, 190 / 130, 0.08, 45);
+
     const renderer = new THREE.WebGLRenderer({
       antialias: true,
       powerPreference: "high-performance",
@@ -230,10 +308,10 @@ export default function KinetiXStage3D({
     renderer.shadowMap.type = THREE.PCFShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.25;
+    renderer.autoClear = false;
     container.innerHTML = "";
     container.appendChild(renderer.domElement);
 
-    // Studio Lighting
     scene.add(new THREE.AmbientLight("#ffffff", 1.35));
     const hemi = new THREE.HemisphereLight("#f2efe9", "#151515", 0.85);
     hemi.position.set(0, 18, 0);
@@ -272,7 +350,6 @@ export default function KinetiXStage3D({
     gridHelper.position.set(-0.5, 0.005, 0);
     arenaGroup.add(gridHelper);
 
-    // Arena Boundary Rails
     const railMat = new THREE.MeshStandardMaterial({
       color: "#222220",
       metalness: 0.4,
@@ -296,7 +373,7 @@ export default function KinetiXStage3D({
     startPad.add(sRing);
     arenaGroup.add(startPad);
 
-    // Pick Zone Pad
+    // Single-Mode Pick & Target Pads
     const pickPad = new THREE.Group();
     const pRing = new THREE.Mesh(
       new THREE.RingGeometry(0.58, 0.7, 32),
@@ -306,7 +383,6 @@ export default function KinetiXStage3D({
     pickPad.add(pRing);
     arenaGroup.add(pickPad);
 
-    // Target Drop Zone Pad
     const targetPad = new THREE.Group();
     const tDisc = new THREE.Mesh(
       new THREE.CircleGeometry(0.82, 36),
@@ -326,40 +402,83 @@ export default function KinetiXStage3D({
     targetPad.add(tRing);
     arenaGroup.add(targetPad);
 
-    // --- HOLLOW NON-METALLIC CYLINDER PAYLOAD (Slide 22) ---
-    const cylinderGroup = new THREE.Group();
-    const cylOuter = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.21, 0.21, 0.62, 32, 1, true),
-      new THREE.MeshStandardMaterial({
-        color: "#ffb300",
-        roughness: 0.25,
-        metalness: 0.1,
-        side: THREE.DoubleSide,
-      })
-    );
-    cylOuter.position.y = 0.31;
-    cylOuter.castShadow = true;
-    cylinderGroup.add(cylOuter);
+    // Helper to build a hollow cylinder mesh
+    const createCylinderMesh = (hexColor: string) => {
+      const g = new THREE.Group();
+      const outer = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.21, 0.21, 0.62, 28, 1, true),
+        new THREE.MeshStandardMaterial({
+          color: hexColor,
+          roughness: 0.25,
+          metalness: 0.1,
+          side: THREE.DoubleSide,
+        })
+      );
+      outer.position.y = 0.31;
+      outer.castShadow = true;
+      g.add(outer);
 
-    const cylInner = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.13, 0.13, 0.62, 32, 1, true),
-      new THREE.MeshStandardMaterial({
-        color: "#4a3200",
-        roughness: 0.5,
-        side: THREE.DoubleSide,
-      })
-    );
-    cylInner.position.y = 0.31;
-    cylinderGroup.add(cylInner);
+      const inner = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.13, 0.13, 0.62, 24, 1, true),
+        new THREE.MeshStandardMaterial({
+          color: "#1a1a18",
+          roughness: 0.6,
+          side: THREE.DoubleSide,
+        })
+      );
+      inner.position.y = 0.31;
+      g.add(inner);
 
-    const cylRim = new THREE.Mesh(
-      new THREE.RingGeometry(0.13, 0.21, 32),
-      new THREE.MeshBasicMaterial({ color: "#ffe082", side: THREE.DoubleSide })
-    );
-    cylRim.rotation.x = -Math.PI / 2;
-    cylRim.position.y = 0.62;
-    cylinderGroup.add(cylRim);
+      const rim = new THREE.Mesh(
+        new THREE.RingGeometry(0.13, 0.21, 28),
+        new THREE.MeshBasicMaterial({ color: "#f2efe9", side: THREE.DoubleSide })
+      );
+      rim.rotation.x = -Math.PI / 2;
+      rim.position.y = 0.62;
+      g.add(rim);
+      return g;
+    };
+
+    const cylinderGroup = createCylinderMesh("#ffb300");
     scene.add(cylinderGroup);
+
+    // Multi-Object Sorting Group (Upgrade #2: 3 Color-Coded Payloads + 3 Drop Pads)
+    const multiSortGroup = new THREE.Group();
+    multiSortGroup.visible = false;
+    scene.add(multiSortGroup);
+
+    const multiCylMeshes: THREE.Group[] = [];
+    MULTI_QUEUE_INIT.forEach((item) => {
+      // Drop zone pad for each color
+      const pad = new THREE.Mesh(
+        new THREE.RingGeometry(0.55, 0.68, 32),
+        new THREE.MeshBasicMaterial({ color: item.color, side: THREE.DoubleSide })
+      );
+      pad.rotation.x = -Math.PI / 2;
+      pad.position.set(item.targetX, 0.015, item.targetZ);
+      multiSortGroup.add(pad);
+
+      const cyl = createCylinderMesh(item.color);
+      cyl.position.set(item.startX, 0, item.startZ);
+      multiSortGroup.add(cyl);
+      multiCylMeshes.push(cyl);
+    });
+
+    // --- UPGRADE #7: GHOST FIXED-PATH LEGACY ROVER ---
+    const ghostRover = new THREE.Group();
+    ghostRover.visible = false;
+    const ghostBody = new THREE.Mesh(
+      new THREE.BoxGeometry(1.5, 0.42, 0.98),
+      new THREE.MeshBasicMaterial({
+        color: "#ff2a2a",
+        wireframe: true,
+        transparent: true,
+        opacity: 0.55,
+      })
+    );
+    ghostBody.position.y = 0.32;
+    ghostRover.add(ghostBody);
+    scene.add(ghostRover);
 
     // --- PROCEDURAL 3D ROBOT ("KINETIX RM-01") ---
     const robotRoot = new THREE.Group();
@@ -630,7 +749,6 @@ export default function KinetiXStage3D({
     slamRing.visible = false;
     robotRoot.add(slamRing);
 
-    // Obstacles & Trail
     const obstaclesGroup = new THREE.Group();
     scene.add(obstaclesGroup);
 
@@ -644,7 +762,7 @@ export default function KinetiXStage3D({
     );
     scene.add(trailLine);
 
-    // Mouse Orbit & Dragging
+    // Mouse Orbit, Dragging & Click-to-Place Maze Wall
     const camSpherical = {
       radius: 10.8,
       theta: -0.16,
@@ -671,6 +789,29 @@ export default function KinetiXStage3D({
       updateMouse(e);
       raycaster.setFromCamera(mouseNdc, camera);
 
+      // Upgrade #2: Click on floor in Wall Draw Mode to drop a maze wall segment
+      if (propsRef.current.wallDrawMode && e.button === 0) {
+        if (raycaster.ray.intersectPlane(floorPlane, planeHit)) {
+          const wx = Number(Math.max(-6.5, Math.min(6.5, planeHit.x)).toFixed(2));
+          const wz = Number(Math.max(-3.6, Math.min(3.6, planeHit.z)).toFixed(2));
+          setObstacles((prev) => [
+            ...prev,
+            {
+              id: `wall-${Date.now().toString().slice(-4)}`,
+              x: wx,
+              z: wz,
+              w: 0.65,
+              d: 1.8,
+              h: 1.15,
+              type: "crate",
+              label: `MAZE_WALL_${prev.length + 1}`,
+              angle: 0,
+            },
+          ]);
+        }
+        return;
+      }
+
       const obsHits = raycaster.intersectObjects(obstaclesGroup.children, true);
       if (obsHits.length > 0 && e.button === 0) {
         let o: THREE.Object3D | null = obsHits[0].object;
@@ -682,7 +823,11 @@ export default function KinetiXStage3D({
         }
       }
 
-      if (!physRef.current.hasCylinder && e.button === 0) {
+      if (
+        !physRef.current.hasCylinder &&
+        !propsRef.current.multiSortEnabled &&
+        e.button === 0
+      ) {
         const cylHits = raycaster.intersectObjects(cylinderGroup.children, true);
         if (cylHits.length > 0) {
           activeDrag = { type: "cylinder" };
@@ -811,7 +956,7 @@ export default function KinetiXStage3D({
 
     const computeSonar = (
       rp: typeof physRef.current,
-      cyl: { x: number; z: number },
+      activeCyl: { x: number; z: number },
       yoloOn: boolean
     ) => {
       const origin = new THREE.Vector3(
@@ -822,8 +967,8 @@ export default function KinetiXStage3D({
       let minWorld = 12.0;
 
       if (!rp.hasCylinder) {
-        const dx = cyl.x - origin.x;
-        const dz = cyl.z - origin.z;
+        const dx = activeCyl.x - origin.x;
+        const dz = activeCyl.z - origin.z;
         const dCyl = Math.hypot(dx, dz);
         let diff = Math.atan2(dz, dx) - rp.heading;
         while (diff > Math.PI) diff -= Math.PI * 2;
@@ -871,12 +1016,36 @@ export default function KinetiXStage3D({
       const rp = physRef.current;
 
       syncObstacles(cur.obstacles);
+
+      // Determine active pick & target coordinates (Single vs Multi-Object Sorting Mode)
+      const activeMultiItem =
+        rp.multiPayloads[Math.min(rp.multiIdx, rp.multiPayloads.length - 1)];
+      const activePickPos = cur.multiSortEnabled
+        ? { x: activeMultiItem.curX, z: activeMultiItem.curZ }
+        : cur.cylinderPos;
+      const activeTargetPos = cur.multiSortEnabled
+        ? { x: activeMultiItem.targetX, z: activeMultiItem.targetZ }
+        : cur.targetPos;
+
+      pickPad.visible = !cur.multiSortEnabled;
+      targetPad.visible = !cur.multiSortEnabled;
+      cylinderGroup.visible = !cur.multiSortEnabled;
+      multiSortGroup.visible = cur.multiSortEnabled;
+
       pickPad.position.set(cur.cylinderPos.x, 0.012, cur.cylinderPos.z);
       targetPad.position.set(cur.targetPos.x, 0.012, cur.targetPos.z);
 
-      const { cm, worldLen } = computeSonar(rp, cur.cylinderPos, cur.yoloEnabled);
+      const { cm, worldLen } = computeSonar(rp, activePickPos, cur.yoloEnabled);
       rp.distanceCm = cm;
       rp.echoUs = Math.round(cm * 58);
+
+      // Update Procedural Sound Synthesizer (Upgrade #6)
+      soundEngine.updateTelemetrySound(
+        rp.distanceCm,
+        cur.obstacleThresholdCm,
+        rp.gripAngle,
+        cur.isRunning && rp.state !== "DONE"
+      );
 
       const spdMult = (cur.motorPwm / 170) * cur.simSpeed;
       const linSpd = 1.55 * spdMult;
@@ -888,7 +1057,42 @@ export default function KinetiXStage3D({
         return a;
       };
 
-      if (cur.mode === "manual") {
+      // --- UPGRADE #4: HARDWARE WIRING FAULT INJECTION OVERRIDES ---
+      if (cur.wiringFaults.lowBatteryBrownout) {
+        rp.subStageText =
+          "BROWNOUT FAULT // Vin = 4.8V (<7.0V MIN) · L298N 2V DROP STALLS MOTORS & RESETS UNO";
+        rp.leftPwm = 0;
+        rp.rightPwm = 0;
+        rp.in1 = 0;
+        rp.in2 = 0;
+        rp.in3 = 0;
+        rp.in4 = 0;
+      } else if (cur.wiringFaults.noCommonGnd && cur.isRunning) {
+        // Floating logic reference -> erratic random jitter!
+        rp.subStageText =
+          "FLOATING LOGIC FAULT // COMMON GND DISCONNECTED (SLIDE 18) · ERRATIC ACTUATION!";
+        rp.heading += Math.sin(now * 0.025) * 6.5 * dt;
+        rp.x += Math.cos(rp.heading) * Math.cos(now * 0.015) * 0.8 * dt;
+        rp.z += Math.sin(rp.heading) * Math.cos(now * 0.015) * 0.8 * dt;
+        rp.targetGripAngle = Math.sin(now * 0.012) > 0 ? 85 : 35;
+        rp.in1 = Math.sin(now * 0.03) > 0 ? 1 : 0;
+        rp.in2 = 1 - rp.in1;
+        rp.in3 = Math.cos(now * 0.02) > 0 ? 1 : 0;
+        rp.in4 = 1 - rp.in3;
+        rp.leftPwm = 190;
+        rp.rightPwm = 190;
+      } else if (cur.wiringFaults.swapLeftPolarity && cur.isRunning) {
+        // IN1 and IN2 swapped -> Left motor spins backward while Right spins forward!
+        rp.subStageText =
+          "POLARITY FAULT // LEFT MOTOR IN1/IN2 SWAPPED · CHASSIS TRAPPED IN SPIN!";
+        rp.heading -= turnSpd * 1.4 * dt;
+        rp.in1 = 0;
+        rp.in2 = 1;
+        rp.in3 = 1;
+        rp.in4 = 0;
+        rp.leftPwm = cur.motorPwm;
+        rp.rightPwm = cur.motorPwm;
+      } else if (cur.mode === "manual") {
         const k = cur.manualKeys;
         let lin = 0;
         let ang = 0;
@@ -899,12 +1103,12 @@ export default function KinetiXStage3D({
         rp.heading += ang * dt;
         rp.x += Math.cos(rp.heading) * lin * dt;
         rp.z += Math.sin(rp.heading) * lin * dt;
-        rp.targetGripAngle = k.gripClosed ? 30 : 90;
+        rp.targetGripAngle = k.gripClosed ? cur.gripClosedDeg : 90;
         rp.subStageText = "MANUAL WASD TELEOP OVERRIDE // SPACEBAR TOGGLES SG90 GRIPPER";
 
         const jawX = rp.x + Math.cos(rp.heading) * 1.35;
         const jawZ = rp.z + Math.sin(rp.heading) * 1.35;
-        const dCyl = Math.hypot(cur.cylinderPos.x - jawX, cur.cylinderPos.z - jawZ);
+        const dCyl = Math.hypot(activePickPos.x - jawX, activePickPos.z - jawZ);
         if (k.gripClosed && !rp.hasCylinder && dCyl < 0.6) {
           rp.hasCylinder = true;
           rp.state = "CARRY";
@@ -914,17 +1118,38 @@ export default function KinetiXStage3D({
           rp.state = "SEARCH";
         }
       } else if (cur.isRunning && cur.cameraMode !== "xray") {
+        // --- UPGRADE #7: A/B GHOST ROVER FIXED-PATH SIMULATION ---
+        ghostRover.visible = cur.ghostRaceEnabled;
+        if (cur.ghostRaceEnabled && !rp.ghostCrashed) {
+          rp.ghostX += linSpd * 0.92 * dt;
+          ghostRover.position.set(rp.ghostX, 0, rp.ghostZ);
+          for (const obs of cur.obstacles) {
+            if (
+              Math.abs(rp.ghostX - obs.x) < obs.w * 0.65 &&
+              Math.abs(rp.ghostZ - obs.z) < obs.d * 0.85
+            ) {
+              rp.ghostCrashed = true;
+              rp.ghostStatus = `COLLIDED WITH ${obs.label} (NO SONAR)`;
+              break;
+            }
+          }
+          if (rp.ghostX > 5.2 && !rp.ghostCrashed) {
+            rp.ghostStatus = "MISSED PICK OBJECT (OPEN-LOOP)";
+          }
+        }
+
+        // --- MAIN KINETIX RM-01 5-STATE DFA ---
         if (rp.state === "SEARCH") {
           rp.targetGripAngle = 90;
           const jawX = rp.x + Math.cos(rp.heading) * 1.35;
           const jawZ = rp.z + Math.sin(rp.heading) * 1.35;
-          const dWorld = Math.hypot(cur.cylinderPos.x - jawX, cur.cylinderPos.z - jawZ);
+          const dWorld = Math.hypot(activePickPos.x - jawX, activePickPos.z - jawZ);
           const dCm = dWorld * WORLD_TO_CM;
           rp.distanceCm = Math.min(rp.distanceCm, Math.max(2.5, dCm));
           rp.echoUs = Math.round(rp.distanceCm * 58);
 
           const err = wrap(
-            Math.atan2(cur.cylinderPos.z - rp.z, cur.cylinderPos.x - rp.x) - rp.heading
+            Math.atan2(activePickPos.z - rp.z, activePickPos.x - rp.x) - rp.heading
           );
 
           if (dCm > cur.pickDistCm) {
@@ -936,7 +1161,7 @@ export default function KinetiXStage3D({
             rp.activeCodeLine = 3;
             rp.subStageText =
               dCm < 16
-                ? `CREEPING TO PICK OBJECT // d = ${rp.distanceCm.toFixed(1)} cm (TARGET ≤ 5.0 cm)`
+                ? `CREEPING TO PAYLOAD // d = ${rp.distanceCm.toFixed(1)} cm (TARGET ≤ ${cur.pickDistCm} cm)`
                 : `APPROACHING PICK ZONE // SONAR d = ${rp.distanceCm.toFixed(1)} cm`;
             rp.in1 = 1;
             rp.in2 = 0;
@@ -949,7 +1174,7 @@ export default function KinetiXStage3D({
             rp.stateTimer = 0;
             rp.stepNum = 5;
             rp.activeCodeLine = 6;
-            rp.subStageText = "OBJECT AT ≤ 5.0 cm // MOTORS HALTED · CLOSING SG90 JAWS TO 30°";
+            rp.subStageText = `PAYLOAD AT ≤ ${cur.pickDistCm} cm // CLOSING SG90 JAWS TO ${cur.gripClosedDeg}°`;
             rp.in1 = 0;
             rp.in2 = 0;
             rp.in3 = 0;
@@ -958,7 +1183,7 @@ export default function KinetiXStage3D({
             rp.rightPwm = 0;
           }
         } else if (rp.state === "PICK") {
-          rp.targetGripAngle = 30;
+          rp.targetGripAngle = cur.gripClosedDeg;
           rp.stateTimer += dt * cur.simSpeed;
           rp.in1 = 0;
           rp.in2 = 0;
@@ -977,8 +1202,17 @@ export default function KinetiXStage3D({
             rp.activeCodeLine = 9;
           }
         } else if (rp.state === "CARRY") {
-          rp.targetGripAngle = 30;
-          const distTarget = Math.hypot(cur.targetPos.x - rp.x, cur.targetPos.z - rp.z);
+          rp.targetGripAngle = cur.gripClosedDeg;
+
+          // Upgrade #1: If user flashed a weak grip angle (> 52°), payload slips out during motion!
+          if (cur.gripClosedDeg > 52 && rp.hasCylinder) {
+            rp.hasCylinder = false;
+            rp.state = "SEARCH";
+            rp.subStageText = `PAYLOAD SLIP FAULT // GRIP ANGLE (${cur.gripClosedDeg}°) TOO WIDE TO HOLD CYLINDER!`;
+          }
+
+          const distTarget = Math.hypot(activeTargetPos.x - rp.x, activeTargetPos.z - rp.z);
+          const spinSec = Math.max(0.25, cur.spinDurationMs / 1000);
 
           if (distTarget < 0.75) {
             rp.state = "PLACE";
@@ -1000,7 +1234,7 @@ export default function KinetiXStage3D({
             rp.avoidTimer = 0;
             rp.stepNum = 7;
             rp.activeCodeLine = 8;
-            rp.subStageText = `OBSTACLE DETECTED AT d = ${rp.distanceCm.toFixed(1)} cm (≤ ${cur.obstacleThresholdCm} cm) // H-BRIDGE BRAKING`;
+            rp.subStageText = `OBSTACLE AT d = ${rp.distanceCm.toFixed(1)} cm (≤ ${cur.obstacleThresholdCm} cm) // H-BRIDGE BRAKING`;
             rp.avoidTurnDir = rp.z >= 0 ? -1 : 1;
           } else if (rp.avoidState === "BRAKE") {
             rp.in1 = 1;
@@ -1010,11 +1244,11 @@ export default function KinetiXStage3D({
             rp.leftPwm = 0;
             rp.rightPwm = 0;
             rp.avoidTimer += dt * cur.simSpeed;
-            if (rp.avoidTimer > 0.4) {
+            if (rp.avoidTimer > 0.38) {
               rp.avoidState = "SPIN";
               rp.avoidTimer = 0;
               rp.stepNum = 8;
-              rp.subStageText = "DIFFERENTIAL SPIN-IN-PLACE // L298N S1+S4 (L) & S3+S2 (R)";
+              rp.subStageText = `DIFFERENTIAL SPIN (${cur.spinDurationMs}ms) // L298N S1+S4 (L) & S3+S2 (R)`;
             }
           } else if (rp.avoidState === "SPIN") {
             rp.heading += rp.avoidTurnDir * turnSpd * dt;
@@ -1026,8 +1260,8 @@ export default function KinetiXStage3D({
             rp.rightPwm = cur.motorPwm;
             rp.avoidTimer += dt * cur.simSpeed;
             if (
-              rp.avoidTimer > 0.55 &&
-              rp.distanceCm > cur.obstacleThresholdCm + 8
+              rp.avoidTimer > spinSec &&
+              rp.distanceCm > cur.obstacleThresholdCm + 7
             ) {
               rp.avoidState = "BYPASS";
               rp.avoidTimer = 0;
@@ -1046,15 +1280,15 @@ export default function KinetiXStage3D({
             if (rp.distanceCm <= cur.obstacleThresholdCm) {
               rp.avoidState = "BRAKE";
               rp.avoidTimer = 0;
-            } else if (rp.avoidTimer > 1.1) {
+            } else if (rp.avoidTimer > 1.05) {
               rp.avoidState = "NONE";
             }
           } else {
             rp.stepNum = 9;
             rp.activeCodeLine = 9;
-            rp.subStageText = `TRANSPORTING CYLINDER TO TARGET // SONAR CLEAR (${rp.distanceCm.toFixed(1)} cm)`;
+            rp.subStageText = `TRANSPORTING TO TARGET // SONAR CLEAR (${rp.distanceCm.toFixed(1)} cm)`;
             const err = wrap(
-              Math.atan2(cur.targetPos.z - rp.z, cur.targetPos.x - rp.x) - rp.heading
+              Math.atan2(activeTargetPos.z - rp.z, activeTargetPos.x - rp.x) - rp.heading
             );
             rp.heading += Math.sign(err) * Math.min(Math.abs(err) * 3.0, turnSpd) * dt;
             rp.x += Math.cos(rp.heading) * linSpd * dt;
@@ -1072,10 +1306,16 @@ export default function KinetiXStage3D({
           if (rp.stateTimer < 0.55) {
             if (rp.hasCylinder && rp.stateTimer > 0.25) {
               rp.hasCylinder = false;
-              setCylinderPos({
-                x: Number(cur.targetPos.x.toFixed(2)),
-                z: Number(cur.targetPos.z.toFixed(2)),
-              });
+              if (cur.multiSortEnabled) {
+                activeMultiItem.curX = activeMultiItem.targetX;
+                activeMultiItem.curZ = activeMultiItem.targetZ;
+                activeMultiItem.done = true;
+              } else {
+                setCylinderPos({
+                  x: Number(cur.targetPos.x.toFixed(2)),
+                  z: Number(cur.targetPos.z.toFixed(2)),
+                });
+              }
             }
           } else if (rp.stateTimer < 1.1) {
             rp.stepNum = 11;
@@ -1089,16 +1329,26 @@ export default function KinetiXStage3D({
             rp.leftPwm = 115;
             rp.rightPwm = 115;
           } else {
-            rp.state = "DONE";
-            rp.stepNum = 12;
-            rp.activeCodeLine = 13;
-            rp.subStageText = "MISSION COMPLETE // PAYLOAD DELIVERED AUTONOMOUSLY TO TARGET";
-            rp.in1 = 0;
-            rp.in2 = 0;
-            rp.in3 = 0;
-            rp.in4 = 0;
-            rp.leftPwm = 0;
-            rp.rightPwm = 0;
+            // Check if more payloads remain in Multi-Object Sorting Mode!
+            if (cur.multiSortEnabled && rp.multiIdx < rp.multiPayloads.length - 1) {
+              rp.multiIdx += 1;
+              rp.state = "SEARCH";
+              rp.stepNum = 2;
+              rp.activeCodeLine = 3;
+              rp.subStageText = `SORTED ${rp.multiIdx}/3 // RETURNING FOR NEXT PAYLOAD`;
+            } else {
+              rp.state = "DONE";
+              rp.stepNum = 12;
+              rp.activeCodeLine = 13;
+              rp.subStageText =
+                "MISSION COMPLETE // ALL PAYLOADS DELIVERED AUTONOMOUSLY";
+              rp.in1 = 0;
+              rp.in2 = 0;
+              rp.in3 = 0;
+              rp.in4 = 0;
+              rp.leftPwm = 0;
+              rp.rightPwm = 0;
+            }
           }
         }
       }
@@ -1122,14 +1372,29 @@ export default function KinetiXStage3D({
         mesh.rotation.z = side === "L" ? -rp.wheelRotL : -rp.wheelRotR;
       });
 
-      if (rp.hasCylinder) {
-        cylinderGroup.position.set(
-          rp.x + Math.cos(rp.heading) * 1.44,
-          0.04,
-          rp.z + Math.sin(rp.heading) * 1.44
-        );
+      // Update Single or Multi-Sort Cylinder Positions
+      if (cur.multiSortEnabled) {
+        rp.multiPayloads.forEach((item, idx) => {
+          if (idx === rp.multiIdx && rp.hasCylinder) {
+            multiCylMeshes[idx].position.set(
+              rp.x + Math.cos(rp.heading) * 1.44,
+              0.04,
+              rp.z + Math.sin(rp.heading) * 1.44
+            );
+          } else {
+            multiCylMeshes[idx].position.set(item.curX, 0, item.curZ);
+          }
+        });
       } else {
-        cylinderGroup.position.set(cur.cylinderPos.x, 0, cur.cylinderPos.z);
+        if (rp.hasCylinder) {
+          cylinderGroup.position.set(
+            rp.x + Math.cos(rp.heading) * 1.44,
+            0.04,
+            rp.z + Math.sin(rp.heading) * 1.44
+          );
+        } else {
+          cylinderGroup.position.set(cur.cylinderPos.x, 0, cur.cylinderPos.z);
+        }
       }
 
       const cLen = Math.max(0.3, Math.min(6.2, worldLen));
@@ -1183,7 +1448,7 @@ export default function KinetiXStage3D({
         trailGeo.setDrawRange(0, rp.trailPoints.length);
       }
 
-      // Camera Modes
+      // Main Camera Controller
       if (cur.cameraMode === "xray") {
         camera.position.lerp(new THREE.Vector3(rp.x + 1.9, 2.7, rp.z + 3.1), dt * 5);
         camera.lookAt(new THREE.Vector3(rp.x + 0.1, 0.65, rp.z));
@@ -1231,10 +1496,68 @@ export default function KinetiXStage3D({
         camera.lookAt(camSpherical.target);
       }
 
+      // --- RENDER MAIN VIEWPORT ---
+      const fullW = container.clientWidth;
+      const fullH = container.clientHeight;
+      renderer.setViewport(0, 0, fullW, fullH);
+      renderer.setScissor(0, 0, fullW, fullH);
+      renderer.setScissorTest(true);
+      renderer.clear();
       renderer.render(scene, camera);
+
+      // --- UPGRADE #3: RENDER PICTURE-IN-PICTURE (PiP) ONBOARD NOSE-CAM ---
+      if (cur.pipEnabled && cur.cameraMode !== "pov" && fullW > 480) {
+        const pipW = 196;
+        const pipH = 128;
+        const pipX = fullW - pipW - 12;
+        const pipY = 12; // Bottom-right in WebGL coordinates
+
+        pipCamera.position.set(
+          rp.x + Math.cos(rp.heading) * 0.68,
+          0.68,
+          rp.z + Math.sin(rp.heading) * 0.68
+        );
+        pipCamera.lookAt(
+          new THREE.Vector3(
+            rp.x + Math.cos(rp.heading) * 4.2,
+            0.28,
+            rp.z + Math.sin(rp.heading) * 4.2
+          )
+        );
+
+        renderer.setViewport(pipX, pipY, pipW, pipH);
+        renderer.setScissor(pipX, pipY, pipW, pipH);
+        renderer.clearDepth();
+        renderer.render(scene, pipCamera);
+      }
 
       if (now - lastUi > 65) {
         lastUi = now;
+        // Compute electrical current & voltage sag for Upgrade #5
+        const isSpinning = rp.avoidState === "SPIN";
+        const isBraking = rp.in1 === 1 && rp.in2 === 1;
+        const baseCurrent =
+          rp.leftPwm === 0
+            ? isBraking
+              ? 640
+              : 35
+            : isSpinning
+            ? 790
+            : Math.round((rp.leftPwm / 255) * 420) + (rp.hasCylinder ? 95 : 0);
+        const jitterMa = Math.round(Math.sin(now * 0.02) * 14);
+        const motorCurrentMa = cur.wiringFaults.lowBatteryBrownout
+          ? 920
+          : Math.max(20, baseCurrent + jitterMa);
+        const batteryVoltage = cur.wiringFaults.lowBatteryBrownout
+          ? 4.8
+          : Number((7.4 - (motorCurrentMa / 1000) * 0.48).toFixed(2));
+
+        const sortedCount = cur.multiSortEnabled
+          ? rp.multiPayloads.filter((p) => p.done).length
+          : rp.state === "DONE"
+          ? 1
+          : 0;
+
         onTelemetryUpdate({
           x: rp.x,
           z: rp.z,
@@ -1254,6 +1577,11 @@ export default function KinetiXStage3D({
           in2: rp.in2,
           in3: rp.in3,
           in4: rp.in4,
+          motorCurrentMa,
+          batteryVoltage,
+          sortedCount,
+          totalPayloads: cur.multiSortEnabled ? 3 : 1,
+          ghostStatus: rp.ghostStatus,
         });
 
         const w = container.clientWidth;
@@ -1307,13 +1635,13 @@ export default function KinetiXStage3D({
           }
 
           if (!rp.hasCylinder && rp.state !== "DONE") {
-            const cPt = project(new THREE.Vector3(cur.cylinderPos.x, 0.9, cur.cylinderPos.z));
+            const cPt = project(new THREE.Vector3(activePickPos.x, 0.9, activePickPos.z));
             if (cPt) {
               tags.push({
                 id: "t-cyl",
-                code: "ZONE_02",
+                code: cur.multiSortEnabled ? `PAYLOAD_${rp.multiIdx + 1}/3` : "ZONE_02",
                 title: "PICK OBJECT",
-                sub: "Grip at d ≤ 5cm [Drag]",
+                sub: `Grip ≤ ${cur.pickDistCm}cm`,
                 border: "border-[#ffb300]",
                 accent: "text-[#ffb300]",
                 x: cPt.x,
@@ -1329,7 +1657,7 @@ export default function KinetiXStage3D({
                 id: `t-obs-${o.id}`,
                 code: `OBS_0${idx + 1}`,
                 title: o.label,
-                sub: "Avoid ≤ 20cm [Drag]",
+                sub: `Avoid ≤ ${cur.obstacleThresholdCm}cm [Drag]`,
                 border: "border-[#ff2a2a]",
                 accent: "text-[#ff2a2a]",
                 x: oPt.x,
@@ -1338,7 +1666,9 @@ export default function KinetiXStage3D({
             }
           });
 
-          const tPt = project(new THREE.Vector3(cur.targetPos.x, 0.3, cur.targetPos.z - 1.05));
+          const tPt = project(
+            new THREE.Vector3(activeTargetPos.x, 0.3, activeTargetPos.z - 1.05)
+          );
           if (tPt) {
             tags.push({
               id: "t-target",
@@ -1352,13 +1682,30 @@ export default function KinetiXStage3D({
             });
           }
 
+          // Upgrade #7: Ghost Rover Callout Tag
+          if (cur.ghostRaceEnabled) {
+            const gPt = project(new THREE.Vector3(rp.ghostX, 0.95, rp.ghostZ));
+            if (gPt) {
+              tags.push({
+                id: "t-ghost",
+                code: "LEGACY_BOT",
+                title: rp.ghostCrashed ? "COLLISION HALTED!" : "OPEN-LOOP PATH",
+                sub: rp.ghostStatus,
+                border: "border-[#ff2a2a]",
+                accent: "text-[#ff2a2a]",
+                x: gPt.x,
+                y: gPt.y,
+              });
+            }
+          }
+
           const rPt = project(new THREE.Vector3(rp.x, 1.28, rp.z));
           if (rPt) {
             tags.push({
               id: "t-robot",
               code: rp.state,
               title: `d = ${rp.distanceCm.toFixed(1)} cm`,
-              sub: `Grip: ${Math.round(rp.gripAngle)}° · PWM: ${rp.leftPwm}`,
+              sub: `${motorCurrentMa}mA · ${batteryVoltage}V`,
               border: "border-[#ffb300]",
               accent: "text-[#ffb300]",
               x: rPt.x,
@@ -1369,7 +1716,6 @@ export default function KinetiXStage3D({
           setWorldTags(tags);
         }
 
-        // YOLOv8 Vision Bounding Boxes (Slide 27 Future Scope)
         if (cur.yoloEnabled) {
           const boxes: {
             id: string;
@@ -1380,9 +1726,7 @@ export default function KinetiXStage3D({
             w: number;
             h: number;
           }[] = [];
-          const cSc = project(
-            new THREE.Vector3(cylinderGroup.position.x, 0.3, cylinderGroup.position.z)
-          );
+          const cSc = project(new THREE.Vector3(activePickPos.x, 0.3, activePickPos.z));
           if (cSc) {
             boxes.push({
               id: "yolo-cyl",
@@ -1507,6 +1851,27 @@ export default function KinetiXStage3D({
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Upgrade #3: PiP Onboard Nose-Cam Frame Overlay (Bottom-Right Corner) */}
+      {pipEnabled && cameraMode !== "pov" && (
+        <div className="pointer-events-none hidden sm:block absolute bottom-[12px] right-[12px] w-[196px] h-[128px] border-2 border-[#ffb300]">
+          <div className="bg-[#080808]/90 border-b border-[#ffb300] px-2 py-0.5 flex items-center justify-between font-mono text-[9px]">
+            <span className="text-[#ffb300] font-bold">NOSE_CAM // HC-SR04 POV</span>
+            <span className="text-[#00e676]">● LIVE</span>
+          </div>
+          {/* Crosshair reticle */}
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="w-5 h-5 border border-[#ffb300]/50" />
+          </div>
+        </div>
+      )}
+
+      {/* Wall Draw Mode Active Banner */}
+      {wallDrawMode && (
+        <div className="pointer-events-none absolute top-3 left-1/2 -translate-x-1/2 bg-[#00e5ff] text-[#080808] px-3 py-1 font-mono text-[11px] font-bold tracking-wider uppercase border border-[#f2efe9]">
+          MAZE BUILDER ACTIVE // CLICK ANYWHERE ON ARENA FLOOR TO PLACE BARRIER WALL
         </div>
       )}
 
