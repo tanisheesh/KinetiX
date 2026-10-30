@@ -9,7 +9,7 @@ import {
 } from "@/lib/kinetix-data";
 import { soundEngine } from "@/lib/sound-engine";
 
-export const WORLD_TO_CM = 10.0;
+export const WORLD_TO_CM = 15.0; // 1 world unit = 15 cm (20 cm = 1.33 world units)
 
 export interface StageTelemetry {
   x: number;
@@ -90,9 +90,36 @@ interface ProjectedTag {
 }
 
 const MULTI_QUEUE_INIT = [
-  { id: 0, label: "CYL_AMBER", color: "#ffb300", startX: -3.2, startZ: -1.3, targetX: 5.2, targetZ: -1.5, done: false },
-  { id: 1, label: "CYL_GREEN", color: "#00e676", startX: -3.2, startZ: 0.0, targetX: 5.2, targetZ: 0.0, done: false },
-  { id: 2, label: "CYL_CYAN", color: "#00e5ff", startX: -3.2, startZ: 1.3, targetX: 5.2, targetZ: 1.5, done: false },
+  {
+    id: 0,
+    label: "CYL_AMBER",
+    color: "#ffb300",
+    startX: -3.2,
+    startZ: -1.2,
+    targetX: 5.2,
+    targetZ: -1.4,
+    done: false,
+  },
+  {
+    id: 1,
+    label: "CYL_GREEN",
+    color: "#00e676",
+    startX: -3.2,
+    startZ: 0.0,
+    targetX: 5.2,
+    targetZ: 0.0,
+    done: false,
+  },
+  {
+    id: 2,
+    label: "CYL_CYAN",
+    color: "#00e5ff",
+    startX: -3.2,
+    startZ: 1.2,
+    targetX: 5.2,
+    targetZ: 1.4,
+    done: false,
+  },
 ];
 
 export default function KinetiXStage3D({
@@ -220,27 +247,31 @@ export default function KinetiXStage3D({
     in2: 0,
     in3: 1,
     in4: 0,
-    distanceCm: 32.0,
-    echoUs: 1856,
+    distanceCm: 48.0,
+    echoUs: 2784,
     avoidState: "NONE" as "NONE" | "BRAKE" | "SPIN" | "BYPASS",
     avoidTimer: 0,
     avoidTurnDir: -1,
+    bypassWaypointX: 1.5,
+    bypassWaypointZ: -1.8,
     stateTimer: 0,
     wheelRotL: 0,
     wheelRotR: 0,
     trailPoints: [{ x: -6.4, z: 0.0 }],
     lastTrailTime: 0,
-    // Multi-sort state
     multiIdx: 0,
-    multiPayloads: MULTI_QUEUE_INIT.map((p) => ({ ...p, curX: p.startX, curZ: p.startZ })),
-    // A/B Ghost Rover state
+    multiPayloads: MULTI_QUEUE_INIT.map((p) => ({
+      ...p,
+      curX: p.startX,
+      curZ: p.startZ,
+    })),
     ghostX: -6.4,
-    ghostZ: -0.55,
+    ghostZ: -0.45,
     ghostCrashed: false,
-    ghostStatus: "DRIVING FIXED PATH",
+    ghostStatus: "FIXED-PATH OPEN LOOP",
   });
 
-  // Reset Robot on resetId or multiSort toggle
+  // Reset Robot when resetId or multiSortEnabled changes
   useEffect(() => {
     const rp = physRef.current;
     rp.x = -6.4;
@@ -274,10 +305,10 @@ export default function KinetiXStage3D({
     rp.stateTimer = 0;
     rp.trailPoints = [{ x: rp.x, z: rp.z }];
     rp.ghostX = -6.4;
-    rp.ghostZ = -0.55;
+    rp.ghostZ = -0.45;
     rp.ghostCrashed = false;
     rp.ghostStatus = "FIXED-PATH OPEN LOOP";
-  }, [resetId, multiSortEnabled, cylinderPos.x, cylinderPos.z]);
+  }, [resetId, multiSortEnabled]);
 
   useEffect(() => {
     const container = mountRef.current;
@@ -295,8 +326,7 @@ export default function KinetiXStage3D({
     );
     camera.position.set(-0.5, 7.2, 9.6);
 
-    // Secondary PiP Nose-Cam for Upgrade #3
-    const pipCamera = new THREE.PerspectiveCamera(58, 190 / 130, 0.08, 45);
+    const pipCamera = new THREE.PerspectiveCamera(58, 196 / 128, 0.08, 45);
 
     const renderer = new THREE.WebGLRenderer({
       antialias: true,
@@ -402,7 +432,6 @@ export default function KinetiXStage3D({
     targetPad.add(tRing);
     arenaGroup.add(targetPad);
 
-    // Helper to build a hollow cylinder mesh
     const createCylinderMesh = (hexColor: string) => {
       const g = new THREE.Group();
       const outer = new THREE.Mesh(
@@ -442,14 +471,12 @@ export default function KinetiXStage3D({
     const cylinderGroup = createCylinderMesh("#ffb300");
     scene.add(cylinderGroup);
 
-    // Multi-Object Sorting Group (Upgrade #2: 3 Color-Coded Payloads + 3 Drop Pads)
     const multiSortGroup = new THREE.Group();
     multiSortGroup.visible = false;
     scene.add(multiSortGroup);
 
     const multiCylMeshes: THREE.Group[] = [];
     MULTI_QUEUE_INIT.forEach((item) => {
-      // Drop zone pad for each color
       const pad = new THREE.Mesh(
         new THREE.RingGeometry(0.55, 0.68, 32),
         new THREE.MeshBasicMaterial({ color: item.color, side: THREE.DoubleSide })
@@ -464,7 +491,7 @@ export default function KinetiXStage3D({
       multiCylMeshes.push(cyl);
     });
 
-    // --- UPGRADE #7: GHOST FIXED-PATH LEGACY ROVER ---
+    // Ghost Fixed-Path Rover
     const ghostRover = new THREE.Group();
     ghostRover.visible = false;
     const ghostBody = new THREE.Mesh(
@@ -762,7 +789,6 @@ export default function KinetiXStage3D({
     );
     scene.add(trailLine);
 
-    // Mouse Orbit, Dragging & Click-to-Place Maze Wall
     const camSpherical = {
       radius: 10.8,
       theta: -0.16,
@@ -789,7 +815,6 @@ export default function KinetiXStage3D({
       updateMouse(e);
       raycaster.setFromCamera(mouseNdc, camera);
 
-      // Upgrade #2: Click on floor in Wall Draw Mode to drop a maze wall segment
       if (propsRef.current.wallDrawMode && e.button === 0) {
         if (raycaster.ray.intersectPlane(floorPlane, planeHit)) {
           const wx = Number(Math.max(-6.5, Math.min(6.5, planeHit.x)).toFixed(2));
@@ -964,7 +989,8 @@ export default function KinetiXStage3D({
         0.4,
         rp.z + Math.sin(rp.heading) * 1.02
       );
-      let minWorld = 12.0;
+      let minWorld = 8.0; // 120 cm max visual range (8.0 * 15 = 120 cm)
+      let hitObsObj: ArenaObstacle | null = null;
 
       if (!rp.hasCylinder) {
         const dx = activeCyl.x - origin.x;
@@ -974,7 +1000,7 @@ export default function KinetiXStage3D({
         while (diff > Math.PI) diff -= Math.PI * 2;
         while (diff < -Math.PI) diff += Math.PI * 2;
         if (Math.abs(diff) < 0.35) {
-          minWorld = Math.min(minWorld, Math.max(0.2, dCyl - 0.21));
+          minWorld = Math.min(minWorld, Math.max(0.15, dCyl - 0.21));
         }
       }
 
@@ -983,24 +1009,30 @@ export default function KinetiXStage3D({
         const a = rp.heading + off;
         raycaster.set(origin, new THREE.Vector3(Math.cos(a), 0, Math.sin(a)).normalize());
         raycaster.near = 0.05;
-        raycaster.far = 15.0;
+        raycaster.far = 10.0;
         const hits = raycaster.intersectObjects(obstaclesGroup.children, true);
         if (hits.length > 0) {
           let o: THREE.Object3D | null = hits[0].object;
-          while (o && !o.userData?.obsType && o !== obstaclesGroup) o = o.parent;
+          while (o && !o.userData?.obsId && o !== obstaclesGroup) o = o.parent;
           const t = o?.userData?.obsType;
+          const foundObs = propsRef.current.obstacles.find(
+            (item) => item.id === o?.userData?.obsId
+          );
+          let dist = hits[0].distance;
           if (t === "foam" && !yoloOn) {
-            minWorld = Math.min(minWorld, hits[0].distance * 1.85);
+            dist *= 1.85;
           } else if (t === "angled" && !yoloOn) {
-            minWorld = Math.min(minWorld, hits[0].distance * 1.45);
-          } else {
-            minWorld = Math.min(minWorld, hits[0].distance);
+            dist *= 1.45;
+          }
+          if (dist < minWorld) {
+            minWorld = dist;
+            if (foundObs) hitObsObj = foundObs;
           }
         }
       });
 
       const cm = Math.max(2.0, Math.min(120.0, minWorld * WORLD_TO_CM));
-      return { cm, worldLen: cm / WORLD_TO_CM };
+      return { cm, worldLen: cm / WORLD_TO_CM, hitObsObj };
     };
 
     let animId: number;
@@ -1017,7 +1049,6 @@ export default function KinetiXStage3D({
 
       syncObstacles(cur.obstacles);
 
-      // Determine active pick & target coordinates (Single vs Multi-Object Sorting Mode)
       const activeMultiItem =
         rp.multiPayloads[Math.min(rp.multiIdx, rp.multiPayloads.length - 1)];
       const activePickPos = cur.multiSortEnabled
@@ -1035,11 +1066,10 @@ export default function KinetiXStage3D({
       pickPad.position.set(cur.cylinderPos.x, 0.012, cur.cylinderPos.z);
       targetPad.position.set(cur.targetPos.x, 0.012, cur.targetPos.z);
 
-      const { cm, worldLen } = computeSonar(rp, activePickPos, cur.yoloEnabled);
+      const { cm, worldLen, hitObsObj } = computeSonar(rp, activePickPos, cur.yoloEnabled);
       rp.distanceCm = cm;
       rp.echoUs = Math.round(cm * 58);
 
-      // Update Procedural Sound Synthesizer (Upgrade #6)
       soundEngine.updateTelemetrySound(
         rp.distanceCm,
         cur.obstacleThresholdCm,
@@ -1048,8 +1078,8 @@ export default function KinetiXStage3D({
       );
 
       const spdMult = (cur.motorPwm / 170) * cur.simSpeed;
-      const linSpd = 1.55 * spdMult;
-      const turnSpd = 2.2 * spdMult;
+      const linSpd = 1.65 * spdMult;
+      const turnSpd = 2.4 * spdMult;
 
       const wrap = (a: number) => {
         while (a > Math.PI) a -= Math.PI * 2;
@@ -1057,7 +1087,6 @@ export default function KinetiXStage3D({
         return a;
       };
 
-      // --- UPGRADE #4: HARDWARE WIRING FAULT INJECTION OVERRIDES ---
       if (cur.wiringFaults.lowBatteryBrownout) {
         rp.subStageText =
           "BROWNOUT FAULT // Vin = 4.8V (<7.0V MIN) · L298N 2V DROP STALLS MOTORS & RESETS UNO";
@@ -1068,7 +1097,6 @@ export default function KinetiXStage3D({
         rp.in3 = 0;
         rp.in4 = 0;
       } else if (cur.wiringFaults.noCommonGnd && cur.isRunning) {
-        // Floating logic reference -> erratic random jitter!
         rp.subStageText =
           "FLOATING LOGIC FAULT // COMMON GND DISCONNECTED (SLIDE 18) · ERRATIC ACTUATION!";
         rp.heading += Math.sin(now * 0.025) * 6.5 * dt;
@@ -1082,7 +1110,6 @@ export default function KinetiXStage3D({
         rp.leftPwm = 190;
         rp.rightPwm = 190;
       } else if (cur.wiringFaults.swapLeftPolarity && cur.isRunning) {
-        // IN1 and IN2 swapped -> Left motor spins backward while Right spins forward!
         rp.subStageText =
           "POLARITY FAULT // LEFT MOTOR IN1/IN2 SWAPPED · CHASSIS TRAPPED IN SPIN!";
         rp.heading -= turnSpd * 1.4 * dt;
@@ -1118,7 +1145,7 @@ export default function KinetiXStage3D({
           rp.state = "SEARCH";
         }
       } else if (cur.isRunning && cur.cameraMode !== "xray") {
-        // --- UPGRADE #7: A/B GHOST ROVER FIXED-PATH SIMULATION ---
+        // Ghost Fixed-Path Bot
         ghostRover.visible = cur.ghostRaceEnabled;
         if (cur.ghostRaceEnabled && !rp.ghostCrashed) {
           rp.ghostX += linSpd * 0.92 * dt;
@@ -1138,7 +1165,7 @@ export default function KinetiXStage3D({
           }
         }
 
-        // --- MAIN KINETIX RM-01 5-STATE DFA ---
+        // --- KINETIX 5-STATE DFA ---
         if (rp.state === "SEARCH") {
           rp.targetGripAngle = 90;
           const jawX = rp.x + Math.cos(rp.heading) * 1.35;
@@ -1153,7 +1180,7 @@ export default function KinetiXStage3D({
           );
 
           if (dCm > cur.pickDistCm) {
-            rp.heading += Math.sign(err) * Math.min(Math.abs(err) * 4.0, turnSpd) * dt;
+            rp.heading += Math.sign(err) * Math.min(Math.abs(err) * 4.5, turnSpd) * dt;
             const s = dCm < 16 ? linSpd * 0.55 : linSpd;
             rp.x += Math.cos(rp.heading) * s * dt;
             rp.z += Math.sin(rp.heading) * s * dt;
@@ -1204,17 +1231,25 @@ export default function KinetiXStage3D({
         } else if (rp.state === "CARRY") {
           rp.targetGripAngle = cur.gripClosedDeg;
 
-          // Upgrade #1: If user flashed a weak grip angle (> 52°), payload slips out during motion!
           if (cur.gripClosedDeg > 52 && rp.hasCylinder) {
             rp.hasCylinder = false;
             rp.state = "SEARCH";
             rp.subStageText = `PAYLOAD SLIP FAULT // GRIP ANGLE (${cur.gripClosedDeg}°) TOO WIDE TO HOLD CYLINDER!`;
           }
 
-          const distTarget = Math.hypot(activeTargetPos.x - rp.x, activeTargetPos.z - rp.z);
-          const spinSec = Math.max(0.25, cur.spinDurationMs / 1000);
+          // Check distance from carried cylinder (or robot nose) to Target Drop Pad!
+          const carriedX = rp.x + Math.cos(rp.heading) * 1.44;
+          const carriedZ = rp.z + Math.sin(rp.heading) * 1.44;
+          const distCylToTarget = Math.hypot(
+            activeTargetPos.x - carriedX,
+            activeTargetPos.z - carriedZ
+          );
+          const distRobotToTarget = Math.hypot(
+            activeTargetPos.x - rp.x,
+            activeTargetPos.z - rp.z
+          );
 
-          if (distTarget < 0.75) {
+          if (distCylToTarget < 0.62 || distRobotToTarget < 0.9) {
             rp.state = "PLACE";
             rp.stateTimer = 0;
             rp.stepNum = 10;
@@ -1235,7 +1270,22 @@ export default function KinetiXStage3D({
             rp.stepNum = 7;
             rp.activeCodeLine = 8;
             rp.subStageText = `OBSTACLE AT d = ${rp.distanceCm.toFixed(1)} cm (≤ ${cur.obstacleThresholdCm} cm) // H-BRIDGE BRAKING`;
-            rp.avoidTurnDir = rp.z >= 0 ? -1 : 1;
+
+            // Compute a guaranteed-clear lateral bypass waypoint around the detected obstacle!
+            const refObs = hitObsObj || cur.obstacles[0];
+            if (refObs) {
+              const sideSign = rp.z <= refObs.z ? -1 : 1;
+              rp.avoidTurnDir = sideSign;
+              rp.bypassWaypointX = refObs.x + refObs.w * 0.5 + 0.85;
+              rp.bypassWaypointZ = Math.max(
+                -3.1,
+                Math.min(3.1, refObs.z + sideSign * (refObs.d * 0.5 + 1.35))
+              );
+            } else {
+              rp.avoidTurnDir = rp.z >= 0 ? -1 : 1;
+              rp.bypassWaypointX = rp.x + 2.2;
+              rp.bypassWaypointZ = rp.z + rp.avoidTurnDir * 1.8;
+            }
           } else if (rp.avoidState === "BRAKE") {
             rp.in1 = 1;
             rp.in2 = 1;
@@ -1244,14 +1294,21 @@ export default function KinetiXStage3D({
             rp.leftPwm = 0;
             rp.rightPwm = 0;
             rp.avoidTimer += dt * cur.simSpeed;
-            if (rp.avoidTimer > 0.38) {
+            if (rp.avoidTimer > 0.35) {
               rp.avoidState = "SPIN";
               rp.avoidTimer = 0;
               rp.stepNum = 8;
               rp.subStageText = `DIFFERENTIAL SPIN (${cur.spinDurationMs}ms) // L298N S1+S4 (L) & S3+S2 (R)`;
             }
           } else if (rp.avoidState === "SPIN") {
-            rp.heading += rp.avoidTurnDir * turnSpd * dt;
+            const desiredBypassHeading = Math.atan2(
+              rp.bypassWaypointZ - rp.z,
+              rp.bypassWaypointX - rp.x
+            );
+            const headingErr = wrap(desiredBypassHeading - rp.heading);
+            rp.heading +=
+              Math.sign(headingErr || rp.avoidTurnDir) * turnSpd * 1.15 * dt;
+
             rp.in1 = rp.avoidTurnDir > 0 ? 1 : 0;
             rp.in2 = rp.avoidTurnDir > 0 ? 0 : 1;
             rp.in3 = rp.avoidTurnDir > 0 ? 0 : 1;
@@ -1259,17 +1316,23 @@ export default function KinetiXStage3D({
             rp.leftPwm = cur.motorPwm;
             rp.rightPwm = cur.motorPwm;
             rp.avoidTimer += dt * cur.simSpeed;
-            if (
-              rp.avoidTimer > spinSec &&
-              rp.distanceCm > cur.obstacleThresholdCm + 7
-            ) {
+
+            if (Math.abs(headingErr) < 0.22 || rp.avoidTimer > 0.65) {
               rp.avoidState = "BYPASS";
               rp.avoidTimer = 0;
               rp.subStageText = "CORRIDOR CLEAR // BYPASSING OBSTACLE FLANK";
             }
           } else if (rp.avoidState === "BYPASS") {
+            // Drive smoothly through the lateral bypass waypoint until past the obstacle X!
+            const desiredAng = Math.atan2(
+              rp.bypassWaypointZ - rp.z,
+              rp.bypassWaypointX - rp.x
+            );
+            const err = wrap(desiredAng - rp.heading);
+            rp.heading += Math.sign(err) * Math.min(Math.abs(err) * 3.5, turnSpd) * dt;
             rp.x += Math.cos(rp.heading) * linSpd * dt;
             rp.z += Math.sin(rp.heading) * linSpd * dt;
+
             rp.in1 = 1;
             rp.in2 = 0;
             rp.in3 = 1;
@@ -1277,20 +1340,41 @@ export default function KinetiXStage3D({
             rp.leftPwm = cur.motorPwm;
             rp.rightPwm = cur.motorPwm;
             rp.avoidTimer += dt * cur.simSpeed;
-            if (rp.distanceCm <= cur.obstacleThresholdCm) {
-              rp.avoidState = "BRAKE";
-              rp.avoidTimer = 0;
-            } else if (rp.avoidTimer > 1.05) {
+
+            const distToWp = Math.hypot(
+              rp.bypassWaypointX - rp.x,
+              rp.bypassWaypointZ - rp.z
+            );
+            if (rp.x >= rp.bypassWaypointX - 0.25 || distToWp < 0.45 || rp.avoidTimer > 2.4) {
               rp.avoidState = "NONE";
             }
           } else {
+            // Normal CARRY navigation toward target with smooth obstacle-flank repulsion
             rp.stepNum = 9;
             rp.activeCodeLine = 9;
             rp.subStageText = `TRANSPORTING TO TARGET // SONAR CLEAR (${rp.distanceCm.toFixed(1)} cm)`;
-            const err = wrap(
-              Math.atan2(activeTargetPos.z - rp.z, activeTargetPos.x - rp.x) - rp.heading
-            );
-            rp.heading += Math.sign(err) * Math.min(Math.abs(err) * 3.0, turnSpd) * dt;
+
+            let targetVx = activeTargetPos.x - rp.x;
+            let targetVz = activeTargetPos.z - rp.z;
+            const tLen = Math.hypot(targetVx, targetVz) || 1;
+            targetVx /= tLen;
+            targetVz /= tLen;
+
+            // Add smooth lateral clearance repulsion so the rover never clips obstacle corners
+            cur.obstacles.forEach((obs) => {
+              const dx = rp.x - obs.x;
+              const dz = rp.z - obs.z;
+              const dist = Math.hypot(dx, dz);
+              const safeRadius = Math.max(obs.w, obs.d) * 0.75 + 0.95;
+              if (dist < safeRadius && dist > 0.05) {
+                const push = ((safeRadius - dist) / safeRadius) * 1.8;
+                targetVz += (dz / dist) * push;
+              }
+            });
+
+            const desiredHeading = Math.atan2(targetVz, targetVx);
+            const err = wrap(desiredHeading - rp.heading);
+            rp.heading += Math.sign(err) * Math.min(Math.abs(err) * 3.8, turnSpd) * dt;
             rp.x += Math.cos(rp.heading) * linSpd * dt;
             rp.z += Math.sin(rp.heading) * linSpd * dt;
             rp.in1 = 1;
@@ -1304,6 +1388,12 @@ export default function KinetiXStage3D({
           rp.targetGripAngle = 90;
           rp.stateTimer += dt * cur.simSpeed;
           if (rp.stateTimer < 0.55) {
+            rp.in1 = 0;
+            rp.in2 = 0;
+            rp.in3 = 0;
+            rp.in4 = 0;
+            rp.leftPwm = 0;
+            rp.rightPwm = 0;
             if (rp.hasCylinder && rp.stateTimer > 0.25) {
               rp.hasCylinder = false;
               if (cur.multiSortEnabled) {
@@ -1329,7 +1419,6 @@ export default function KinetiXStage3D({
             rp.leftPwm = 115;
             rp.rightPwm = 115;
           } else {
-            // Check if more payloads remain in Multi-Object Sorting Mode!
             if (cur.multiSortEnabled && rp.multiIdx < rp.multiPayloads.length - 1) {
               rp.multiIdx += 1;
               rp.state = "SEARCH";
@@ -1341,7 +1430,7 @@ export default function KinetiXStage3D({
               rp.stepNum = 12;
               rp.activeCodeLine = 13;
               rp.subStageText =
-                "MISSION COMPLETE // ALL PAYLOADS DELIVERED AUTONOMOUSLY";
+                "MISSION COMPLETE // PAYLOAD DELIVERED AUTONOMOUSLY TO TARGET";
               rp.in1 = 0;
               rp.in2 = 0;
               rp.in3 = 0;
@@ -1372,7 +1461,6 @@ export default function KinetiXStage3D({
         mesh.rotation.z = side === "L" ? -rp.wheelRotL : -rp.wheelRotR;
       });
 
-      // Update Single or Multi-Sort Cylinder Positions
       if (cur.multiSortEnabled) {
         rp.multiPayloads.forEach((item, idx) => {
           if (idx === rp.multiIdx && rp.hasCylinder) {
@@ -1407,7 +1495,6 @@ export default function KinetiXStage3D({
 
       slamRing.visible = cur.slamEnabled;
 
-      // Exploded X-Ray Animation
       const isXray = cur.cameraMode === "xray";
       const expOffsets: Record<string, [number, number, number]> = isXray
         ? {
@@ -1448,7 +1535,6 @@ export default function KinetiXStage3D({
         trailGeo.setDrawRange(0, rp.trailPoints.length);
       }
 
-      // Main Camera Controller
       if (cur.cameraMode === "xray") {
         camera.position.lerp(new THREE.Vector3(rp.x + 1.9, 2.7, rp.z + 3.1), dt * 5);
         camera.lookAt(new THREE.Vector3(rp.x + 0.1, 0.65, rp.z));
@@ -1496,7 +1582,6 @@ export default function KinetiXStage3D({
         camera.lookAt(camSpherical.target);
       }
 
-      // --- RENDER MAIN VIEWPORT ---
       const fullW = container.clientWidth;
       const fullH = container.clientHeight;
       renderer.setViewport(0, 0, fullW, fullH);
@@ -1505,12 +1590,11 @@ export default function KinetiXStage3D({
       renderer.clear();
       renderer.render(scene, camera);
 
-      // --- UPGRADE #3: RENDER PICTURE-IN-PICTURE (PiP) ONBOARD NOSE-CAM ---
       if (cur.pipEnabled && cur.cameraMode !== "pov" && fullW > 480) {
         const pipW = 196;
         const pipH = 128;
         const pipX = fullW - pipW - 12;
-        const pipY = 12; // Bottom-right in WebGL coordinates
+        const pipY = 12;
 
         pipCamera.position.set(
           rp.x + Math.cos(rp.heading) * 0.68,
@@ -1533,7 +1617,6 @@ export default function KinetiXStage3D({
 
       if (now - lastUi > 65) {
         lastUi = now;
-        // Compute electrical current & voltage sag for Upgrade #5
         const isSpinning = rp.avoidState === "SPIN";
         const isBraking = rp.in1 === 1 && rp.in2 === 1;
         const baseCurrent =
@@ -1682,7 +1765,6 @@ export default function KinetiXStage3D({
             });
           }
 
-          // Upgrade #7: Ghost Rover Callout Tag
           if (cur.ghostRaceEnabled) {
             const gPt = project(new THREE.Vector3(rp.ghostX, 0.95, rp.ghostZ));
             if (gPt) {
@@ -1854,14 +1936,13 @@ export default function KinetiXStage3D({
         </div>
       )}
 
-      {/* Upgrade #3: PiP Onboard Nose-Cam Frame Overlay (Bottom-Right Corner) */}
+      {/* PiP Onboard Nose-Cam Frame Overlay */}
       {pipEnabled && cameraMode !== "pov" && (
         <div className="pointer-events-none hidden sm:block absolute bottom-[12px] right-[12px] w-[196px] h-[128px] border-2 border-[#ffb300]">
           <div className="bg-[#080808]/90 border-b border-[#ffb300] px-2 py-0.5 flex items-center justify-between font-mono text-[9px]">
             <span className="text-[#ffb300] font-bold">NOSE_CAM // HC-SR04 POV</span>
             <span className="text-[#00e676]">● LIVE</span>
           </div>
-          {/* Crosshair reticle */}
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="w-5 h-5 border border-[#ffb300]/50" />
           </div>
