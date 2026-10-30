@@ -49,8 +49,8 @@ Manual fallback: add `kinetix.tanisheesh.in` in the Vercel project domains tab, 
 
 - [ ] `https://kinetix.tanisheesh.in` loads with no console errors
 - [ ] `/playground` renders the 60 FPS 3D Digital Twin stage, ultrasonic raycaster, and oscilloscope
-- [ ] `/hardware` renders the 9-module datasheets, Slide 18 wiring schematic, and `.ino` download
-- [ ] `/how-it-works` renders the mathematical equations, truth tables, and Viva defense Q&A
+- [ ] `/hardware` renders the 9-module datasheets, fault wiring schematic, and `.ino` download
+- [ ] `/how-it-works` renders the mathematical equations, truth tables, and architectural rationale
 - [ ] `/opengraph-image` and `/sitemap.xml` resolve cleanly
 
 ---

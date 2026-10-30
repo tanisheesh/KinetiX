@@ -17,7 +17,7 @@ Entry-level autonomous robotics projects suffer from two compounding failure mod
 1. Deliver a deterministic 60 FPS 3D WebGL Digital Twin (`/playground`) that simulates the complete 5-state autonomous pick-and-place cycle (`SEARCH` → `PICK` → `CARRY` → `PLACE` → `DONE`) with real-time 15° ultrasonic cone raycasting.
 2. Allow live interactive manipulation of 3D obstacles (standard crates, 45° specular deflectors, and acoustic foam absorbers) and payload coordinates directly on the stage floor without restarting the simulation.
 3. Expose pin-level hardware telemetry in real time: dual-trace HC-SR04 oscilloscope (`TRIG D10 10µs` and `ECHO D11 t µs`), L298N H-Bridge switch matrix ($S_1\text{–}S_4$), SG90 50 Hz PWM duty cycle, and line-by-line C++ code execution trace.
-4. Ship a production-ready, pin-verified Arduino UNO sketch (`KinetiX_Autonomous_Pick_Place.ino`) alongside complete electrical datasheets, Star/Bus Common Ground schematics (`/hardware`), and mathematical Viva defense derivations (`/how-it-works`).
+4. Ship a production-ready, pin-verified Arduino UNO sketch (`KinetiX_Autonomous_Pick_Place.ino`) alongside complete electrical datasheets, Star/Bus Common Ground schematics (`/hardware`), and mathematical kinematics derivations (`/how-it-works`).
 
 ---
 
@@ -41,8 +41,8 @@ Entry-level autonomous robotics projects suffer from two compounding failure mod
 
 1. *As an examiner or student,* I can drag a 3D crate into the rover's path during the `CARRY` phase so that I can watch the HC-SR04 detect $d \le 20\text{ cm}$, trigger an active H-Bridge brake, and execute a zero-radius differential spin bypass in real time.
 2. *As a hardware engineer,* I can toggle `EXPLODE X-RAY` mode in the 3D stage so that the 6 mechatronic subsystems separate in 3D space with interactive callouts showing their exact electrical ratings and Arduino pin mappings.
-3. *As a student preparing for a hardware build,* I can inspect the Slide 18 Star/Bus Common Ground schematic and download `KinetiX_Autonomous_Pick_Place.ino` so that I can flash an Arduino UNO R3 without wiring mismatches.
-4. *As an evaluator testing sensor edge cases,* I can spawn a 45° angled wall or soft foam block (Slide 26) and toggle the YOLOv8 / 360° SLAM upgrades (Slide 27) so that I can compare single-cone acoustic limitations against computer-vision and LiDAR upgrades.
+3. *As a hardware builder,* I can inspect the Star/Bus Common Ground schematic and download `KinetiX_Autonomous_Pick_Place.ino` so that I can flash an Arduino UNO R3 without wiring mismatches.
+4. *As an evaluator testing sensor edge cases,* I can spawn a 45° angled wall or soft foam block and toggle the YOLOv8 / 360° SLAM upgrades so that I can compare single-cone acoustic limitations against computer-vision and LiDAR upgrades.
 5. *As an operator,* I can switch to `WASD TELEOP` mode and press `Spacebar` so that I can manually steer the differential drive and actuate the SG90 servo jaws between $90^\circ$ and $30^\circ$.
 
 ---
@@ -61,7 +61,7 @@ Entry-level autonomous robotics projects suffer from two compounding failure mod
 - Render an interactive SVG H-Bridge diagram reflecting switches $S_1, S_2, S_3, S_4$ and `ENA/IN1/IN2/ENB/IN3/IN4` logic states.
 - Highlight the currently executing C++ line inside the 5-state FSM loop and track progress across all 12 mission steps.
 
-### 6.3 Hardware, Kinematics & Viva Reference (`/hardware` & `/how-it-works`)
+### 6.3 Hardware, Kinematics & Mathematical Reference (`/hardware` & `/how-it-works`)
 
 - Provide interactive datasheets for all hardware modules, a complete Common Ground interconnect diagram, truth tables, mathematical derivations, and examiner Q&A.
 
@@ -81,7 +81,7 @@ Entry-level autonomous robotics projects suffer from two compounding failure mod
 |---|---|
 | Production Build & Typecheck | 0 TypeScript or Next.js build errors across all 13 static routes |
 | Interactive Frame Rate | 60 FPS continuous WebGL simulation on desktop and mobile browsers |
-| PPT Specification Coverage | 100% of slides (Slides 1–28) mapped to interactive UI and docs |
+| Subsystem & Telemetry Coverage | All 9 hardware modules, 5 FSM states, and 12 mission steps simulated |
 
 ---
 

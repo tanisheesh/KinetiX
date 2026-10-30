@@ -16,7 +16,7 @@
 
 ## Decision 2 — L298N Dual H-Bridge Isolation vs. Direct Microcontroller Drive
 
-**Context:** In the hardware design (Slides 10–11), we needed bidirectional speed and direction control for four 1:48 geared DC motors controlled by an Arduino UNO (ATmega328P).
+**Context:** In the hardware design, we needed bidirectional speed and direction control for four 1:48 geared DC motors controlled by an Arduino UNO (ATmega328P).
 
 **Decision:** Place an L298N Dual Full-Bridge driver between the Arduino GPIO pins (`D5, D7, D8, D6, D4, D2`) and the DC motors, powered directly from the 7.4 V (2×18650 Li-ion) battery rail with a unified Common Ground bus.
 
@@ -28,7 +28,7 @@
 
 ## Decision 3 — Direct 50Hz PWM Drive for the SG90 Gripper Servo (Pin D9)
 
-**Context:** While the wheel motors require the L298N power stage, the two-jaw mechanical gripper is actuated by an SG90 micro servo (Slides 13–15).
+**Context:** While the wheel motors require the L298N power stage, the two-jaw mechanical gripper is actuated by an SG90 micro servo.
 
 **Decision:** Drive the SG90 signal wire (Orange) directly from Arduino hardware PWM Pin `D9` while supplying `+5V` and `GND` from the regulated 5 V rail.
 

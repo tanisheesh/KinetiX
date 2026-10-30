@@ -36,7 +36,7 @@ Fixed-path line followers and open-loop timer bots fail the moment an obstacle b
 - **Interactive 3D WebGL Digital Twin Stage** — procedural 3D RM-01 rover with rotating 1:48 TT gearmotor wheels, volumetric 15° ultrasonic sonar cone, draggable warehouse obstacles, Exploded 3D X-Ray hardware inspection, and live YOLOv8 / 360° ROS SLAM upgrade overlays.
 - **Pin-Level Hardware Telemetry & Oscilloscope** — real-time dual-trace canvas oscilloscope (`CH1: TRIG D10 10µs`, `CH2: ECHO D11 t µs`), interactive L298N H-Bridge switch schematic ($S_1+S_4$ vs $S_3+S_2$), and line-by-line C++ state machine execution debugger.
 - **Complete 9-Module Datasheet & Pinout Workbench** — electrical ratings, Common Ground bus topology schematic, H-Bridge & differential drive truth tables, and one-click `.ino` firmware download ready for Arduino IDE.
-- **Acoustic Stress-Test & Viva Defense Bank** — simulate physical HC-SR04 limitations (45° specular deflection and soft foam absorption) alongside complete engineering derivations and examiner Q&A.
+- **Acoustic Stress-Test & Kinematics Specification** — simulate physical HC-SR04 limitations (45° specular deflection and soft foam absorption) alongside complete mechatronic derivations and architectural rationale.
 
 ---
 

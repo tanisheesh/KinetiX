@@ -1103,7 +1103,7 @@ export default function KinetiXStage3D({
         rp.in4 = 0;
       } else if (cur.wiringFaults.noCommonGnd && cur.isRunning) {
         rp.subStageText =
-          "FLOATING LOGIC FAULT // COMMON GND DISCONNECTED (SLIDE 18) · ERRATIC ACTUATION!";
+          "FLOATING LOGIC FAULT // COMMON GND DISCONNECTED · ERRATIC ACTUATION!";
         rp.heading += Math.sin(now * 0.025) * 6.5 * dt;
         rp.x += Math.cos(rp.heading) * Math.cos(now * 0.015) * 0.8 * dt;
         rp.z += Math.sin(rp.heading) * Math.cos(now * 0.015) * 0.8 * dt;
@@ -1270,7 +1270,7 @@ export default function KinetiXStage3D({
             rp.avoidState === "NONE" &&
             rp.distanceCm <= cur.obstacleThresholdCm
           ) {
-            // SLIDE 21 STEP 1: Detect d <= 20 cm -> Brake immediately before touching obstacle!
+            // STEP 1: Detect d <= 20 cm -> Brake immediately before touching obstacle!
             rp.avoidState = "BRAKE";
             rp.avoidTimer = 0;
             rp.stepNum = 7;
@@ -1309,10 +1309,10 @@ export default function KinetiXStage3D({
               rp.avoidTimer = 0;
               rp.stepNum = 8;
               rp.subStageText =
-                "SLIDE 21 STEP 2 // SPINNING 90° IN PLACE (WHEELS OPPOSITE)";
+                "AVOIDANCE STEP 2 // SPINNING 90° IN PLACE (WHEELS OPPOSITE)";
             }
           } else if (rp.avoidState === "SPIN_90") {
-            // SLIDE 21 STEP 2: Pure 90° spin on the spot (v = 0, wheels in opposite directions)
+            // STEP 2: Pure 90° spin on the spot (v = 0, wheels in opposite directions)
             const targetHeading90 =
               rp.avoidRefHeading + rp.avoidTurnDir * (Math.PI / 2);
             const headingErr = wrap(targetHeading90 - rp.heading);
@@ -1336,10 +1336,10 @@ export default function KinetiXStage3D({
               rp.avoidState = "DRIVE_CLEAR";
               rp.avoidTimer = 0;
               rp.subStageText =
-                "SLIDE 21 STEP 3 // DRIVING PERPENDICULAR TO CLEAR OBSTACLE WIDTH";
+                "AVOIDANCE STEP 3 // DRIVING PERPENDICULAR TO CLEAR OBSTACLE WIDTH";
             }
           } else if (rp.avoidState === "DRIVE_CLEAR") {
-            // SLIDE 21 STEP 3: Drive straight laterally until completely outside obstacle's Z-footprint
+            // STEP 3: Drive straight laterally until completely outside obstacle's Z-footprint
             rp.x += Math.cos(rp.heading) * linSpd * dt;
             rp.z += Math.sin(rp.heading) * linSpd * dt;
             rp.in1 = 1;
@@ -1357,10 +1357,10 @@ export default function KinetiXStage3D({
               rp.avoidState = "SPIN_BACK";
               rp.avoidTimer = 0;
               rp.subStageText =
-                "SLIDE 21 STEP 4 // SPINNING 90° BACK TO PARALLEL CORRIDOR LANE";
+                "AVOIDANCE STEP 4 // SPINNING 90° BACK TO PARALLEL CORRIDOR LANE";
             }
           } else if (rp.avoidState === "SPIN_BACK") {
-            // SLIDE 21 STEP 4: Spin 90° back in place to face parallel to the corridor (+X)
+            // STEP 4: Spin 90° back in place to face parallel to the corridor (+X)
             const headingErr = wrap(rp.avoidRefHeading - rp.heading);
             const stepAng =
               Math.sign(headingErr || -rp.avoidTurnDir) *
@@ -1774,7 +1774,7 @@ export default function KinetiXStage3D({
                 id: key,
                 code: mod.code,
                 title: mod.shortName,
-                sub: mod.slideRef,
+                sub: mod.busTag,
                 border: "border-[#ffb300]",
                 accent: "text-[#ffb300]",
                 x: sc.x,

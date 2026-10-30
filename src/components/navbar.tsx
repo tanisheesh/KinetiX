@@ -34,7 +34,7 @@ export default function Navbar() {
     { href: "/", code: "01", label: "SPECIFICATION", shortLabel: "SPEC" },
     { href: "/playground", code: "02", label: "3D PLAYGROUND", shortLabel: "STAGE" },
     { href: "/hardware", code: "03", label: "HARDWARE & WIRING", shortLabel: "WIRING" },
-    { href: "/how-it-works", code: "04", label: "KINEMATICS & VIVA", shortLabel: "MATH" },
+    { href: "/how-it-works", code: "04", label: "KINEMATICS & MATH", shortLabel: "MATH" },
   ];
 
   return (

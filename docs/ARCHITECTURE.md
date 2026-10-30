@@ -22,8 +22,8 @@ src/
   app/
     page.tsx                 [01] Specification landing page, hero telemetry & benchmark matrix
     playground/page.tsx      [02] Interactive 3D Digital Twin workbench & oscilloscope stack
-    hardware/page.tsx        [03] 9-module datasheets, Slide 18 schematic & .ino studio
-    how-it-works/page.tsx    [04] Mathematical derivations, truth tables, S26/27 & Viva Q&A
+    hardware/page.tsx        [03] 9-module datasheets, fault schematic & .ino studio
+    how-it-works/page.tsx    [04] Mathematical derivations, truth tables & design rationale
     opengraph-image.tsx      Dynamic 1200x630 brutalist OpenGraph social card
   components/
     kinetix-stage-3d.tsx     Three.js 60 FPS rigid-body kinematics, 15° sonar raycaster & X-Ray

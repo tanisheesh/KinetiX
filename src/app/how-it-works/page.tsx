@@ -4,35 +4,35 @@ import React from "react";
 import Link from "next/link";
 import Navbar from "@/components/navbar";
 import Footer from "@/components/footer";
-import { VIVA_DEFENSE_QA } from "@/lib/kinetix-data";
+import { DESIGN_RATIONALE_QA } from "@/lib/kinetix-data";
 
 const MATHEMATICAL_LAWS = [
   {
-    code: "LAW 01 // SLIDE 09",
+    code: "LAW 01 // ACOUSTICS",
     title: "ULTRASONIC TIME-OF-FLIGHT ACOUSTIC RANGING (HC-SR04)",
     formula: "d(cm) = (t_echo × c_air) / 2 = (t_µs × 0.0343 cm/µs) / 2 = t_µs ÷ 58",
     desc: "Arduino sets Pin D10 HIGH for 10 µs, triggering an 8-cycle 40 kHz burst. Pin D11 stays HIGH for the round-trip duration t_µs. Because the acoustic wave traverses 2d (to the obstacle and back), dividing by 58 converts microseconds directly into one-way centimeters.",
   },
   {
-    code: "LAW 02 // SLIDES 10 & 11",
+    code: "LAW 02 // POWER STAGE",
     title: "DUAL H-BRIDGE DIAGONAL SWITCHING & BJT VOLTAGE DROP (L298N)",
     formula: "V_motor = V_batt - V_drop(L298N) · (PWM / 255)   |   Fwd: S1∧S4, Rev: S3∧S2",
     desc: "Four power switches (S1–S4) surround the DC motor crossbar. Closing diagonal pair S1+S4 drives current left-to-right (Forward); closing S3+S2 reverses polarity (Reverse); closing both top or bottom switches dynamically brakes the rotor.",
   },
   {
-    code: "LAW 03 // SLIDE 12",
+    code: "LAW 03 // KINEMATICS",
     title: "1:48 GEAR REDUCTION & DIFFERENTIAL DRIVE KINEMATICS",
     formula: "v = (v_R + v_L) / 2   |   ω = (v_R - v_L) / L   |   τ_wheel ≈ 48 · η · τ_motor",
     desc: "The 1:48 spur gearbox steps down raw motor RPM (>6000 RPM) to ~140 RPM while multiplying shaft torque. Setting v_L = -v_R (left forward, right reverse) yields linear velocity v = 0 and pure angular spin ω around the chassis center.",
   },
   {
-    code: "LAW 04 // SLIDES 13–15",
+    code: "LAW 04 // CLOSED-LOOP PWM",
     title: "CLOSED-LOOP SERVO POTENTIOMETER FEEDBACK & 50HZ PWM (SG90)",
     formula: "T_period = 20 ms (50 Hz)   |   t_pulse(θ) = 1.0 ms + (θ / 180°) × 1.0 ms",
     desc: "An internal potentiometer measures actual horn angle θ_actual and compares it against the target pulse width on Pin D9: 1.0 ms = 0°, 1.17 ms = 30° (Gripper Closed), 1.5 ms = 90° (Gripper Open), 2.0 ms = 180°.",
   },
   {
-    code: "LAW 05 // SLIDE 24",
+    code: "LAW 05 // AUTOMATA",
     title: "5-STATE DETERMINISTIC FINITE AUTOMATON (DFA) CONTROL LOOP",
     formula: "δ(SEARCH, d≤5) → PICK → CARRY   |   δ(CARRY, d≤20) → SPIN_AVOID   |   δ(CARRY, atTarget) → PLACE → DONE",
     desc: "With a single ultrasonic transducer, object-vs-obstacle classification is resolved deterministically by state phase: detections in SEARCH are approached and gripped at d ≤ 5 cm, whereas detections in CARRY trigger obstacle avoidance at d ≤ 20 cm.",
@@ -42,30 +42,30 @@ const MATHEMATICAL_LAWS = [
 const LIMITATIONS_VS_FUTURE = [
   {
     id: "LIM_01",
-    limitation: "Narrow 15° Single-Sensor Cone (Slide 26)",
+    limitation: "Narrow 15° Single-Sensor Cone",
     cause: "HC-SR04 only samples a 15° acoustic cone straight ahead; thin chair legs or off-axis obstacles outside the cone can clip the wheels.",
-    upgrade: "360° 2D LiDAR + ROS SLAM Occupancy Grid (Slide 27)",
+    upgrade: "360° 2D LiDAR + ROS SLAM Occupancy Grid",
     solution: "Replaces single-ray ranging with continuous 360° laser scans, building a real-time Simultaneous Localization and Mapping (SLAM) costmap.",
   },
   {
     id: "LIM_02",
-    limitation: "Soft / Angled Surface Acoustic Loss (Slide 26)",
+    limitation: "Soft / Angled Surface Acoustic Loss",
     cause: "Foam/cloth absorbs 40 kHz ultrasound and walls angled >45° deflect the echo away from the receiver, causing false 400 cm clear readings.",
-    upgrade: "RGB Camera + YOLOv8 Real-Time Vision (Slide 27)",
+    upgrade: "RGB Camera + YOLOv8 Real-Time Vision",
     solution: "Adds visual bounding-box classification on a Raspberry Pi / Jetson companion board so obstacles and payloads are recognized optically.",
   },
   {
     id: "LIM_03",
-    limitation: "Phase-Only Object vs. Obstacle Distinction (Slide 26)",
+    limitation: "Phase-Only Object vs. Obstacle Distinction",
     cause: "Ultrasonic time-of-flight measures distance only, relying on SEARCH vs. CARRY state phase to tell the target cylinder from an obstacle.",
-    upgrade: "Multi-Class YOLO Object Recognition & Sorting (Slide 27)",
+    upgrade: "Multi-Class YOLO Object Recognition & Sorting",
     solution: "Distinguishes target cylinders, warehouse crates, and color-coded drop zones simultaneously for multi-object sorting.",
   },
   {
     id: "LIM_04",
-    limitation: "Open-Loop Target Finding & Wheel Slip (Slide 26)",
+    limitation: "Open-Loop Target Finding & Wheel Slip",
     cause: "Target arrival relies on travel time/distance estimation; smooth floors or battery sag cause dead-reckoning drift.",
-    upgrade: "Quadrature Wheel Odometry + Closed-Loop Nav2 (Slide 27)",
+    upgrade: "Quadrature Wheel Odometry + Closed-Loop Nav2",
     solution: "Optical/magnetic shaft encoders fuse wheel ticks with IMU/LiDAR odometry to guarantee millimeter-accurate target docking.",
   },
 ];
@@ -79,15 +79,15 @@ export default function HowItWorksPage() {
         {/* Page Header */}
         <div className="border border-[#222220] bg-[#0e0e0e] p-5 sm:p-8 lg:p-10">
           <div className="font-mono text-[11px] sm:text-xs text-[#ffb300] uppercase tracking-widest mb-2">
-            // MATHEMATICAL &amp; CONTROL SYSTEMS SPECIFICATION (SLIDES 08–27)
+            // MATHEMATICAL &amp; CONTROL SYSTEMS SPECIFICATION
           </div>
           <h1 className="font-display font-black text-3xl sm:text-5xl lg:text-6xl uppercase text-[#f2efe9]">
-            KINEMATICS, CONTROL LAWS &amp; VIVA DEFENSE
+            KINEMATICS, CONTROL LAWS &amp; ARCHITECTURE
           </h1>
           <p className="text-xs sm:text-base text-[#88857e] mt-3 max-w-3xl leading-relaxed">
             Governing acoustic time-of-flight equations, H-Bridge switching truth tables,
-            differential drive kinematics, SG90 PWM closed-loop feedback, and complete Viva
-            technical defense answers.
+            differential drive kinematics, SG90 PWM closed-loop feedback, and hardware design
+            tradeoffs.
           </p>
         </div>
 
@@ -121,12 +121,11 @@ export default function HowItWorksPage() {
           </div>
         </section>
 
-        {/* ================= 2. SLIDE 11 & 12 TRUTH TABLES ================= */}
+        {/* ================= 2. H-BRIDGE & DIFFERENTIAL DRIVE TRUTH TABLES ================= */}
         <section className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          {/* L298N Truth Table (Slide 11) */}
           <div className="panel-frame">
             <div className="panel-header">
-              <span>L298N H-BRIDGE LOGIC TRUTH TABLE (SLIDE 11)</span>
+              <span>L298N H-BRIDGE LOGIC TRUTH TABLE</span>
               <span>MOTOR A (ENA, IN1, IN2)</span>
             </div>
             <div className="overflow-x-auto">
@@ -181,10 +180,9 @@ export default function HowItWorksPage() {
             </div>
           </div>
 
-          {/* Differential Drive Steering Table (Slide 12) */}
           <div className="panel-frame">
             <div className="panel-header">
-              <span>DIFFERENTIAL DRIVE STEERING MATRIX (SLIDE 12)</span>
+              <span>DIFFERENTIAL DRIVE STEERING MATRIX</span>
               <span>CHASSIS KINEMATICS</span>
             </div>
             <div className="overflow-x-auto">
@@ -234,10 +232,10 @@ export default function HowItWorksPage() {
           </div>
         </section>
 
-        {/* ================= 3. LIMITATIONS (SLIDE 26) VS FUTURE SCOPE (SLIDE 27) ================= */}
+        {/* ================= 3. LIMITATIONS VS V2 UPGRADES ================= */}
         <section className="panel-frame">
           <div className="panel-header">
-            <span>ENGINEERING LIMITATIONS (SLIDE 26) VS. V2 FUTURE SCOPE UPGRADES (SLIDE 27)</span>
+            <span>PHYSICAL SENSOR CONSTRAINTS VS. V2 ARCHITECTURAL UPGRADES</span>
             <Link href="/playground" className="text-[#ffb300] hover:underline">
               SIMULATE UPGRADES IN 3D STAGE →
             </Link>
@@ -248,7 +246,7 @@ export default function HowItWorksPage() {
               <div key={item.id} className="p-5 space-y-3 border-b border-[#222220]">
                 <div className="space-y-1">
                   <div className="font-mono text-[10px] text-[#ff2a2a] font-bold uppercase">
-                    [{item.id}] CURRENT HARDWARE LIMITATION
+                    [{item.id}] CURRENT HARDWARE CONSTRAINT
                   </div>
                   <h4 className="font-display font-black text-xl uppercase text-[#f2efe9]">
                     {item.limitation}
@@ -267,19 +265,19 @@ export default function HowItWorksPage() {
           </div>
         </section>
 
-        {/* ================= 4. VIVA DEFENSE Q&A BANK ================= */}
+        {/* ================= 4. ARCHITECTURAL DESIGN RATIONALE ================= */}
         <section className="panel-frame">
           <div className="panel-header">
-            <span>PRESENTATION &amp; VIVA TECHNICAL DEFENSE BANK</span>
-            <span>6 CORE EXAMINER QUESTIONS</span>
+            <span>ARCHITECTURAL &amp; MECHATRONIC DESIGN RATIONALE</span>
+            <span>6 CORE ENGINEERING TRADEOFFS</span>
           </div>
 
           <div className="divide-y divide-[#222220]">
-            {VIVA_DEFENSE_QA.map((q) => (
+            {DESIGN_RATIONALE_QA.map((q) => (
               <div key={q.code} className="p-5 sm:p-6 space-y-2 bg-[#0e0e0e]">
                 <div className="flex flex-wrap items-center justify-between gap-2 font-mono text-xs">
                   <span className="text-[#ffb300] font-bold">
-                    [{q.code}] // {q.slide}
+                    [{q.code}] // {q.domain}
                   </span>
                 </div>
                 <h3 className="font-display font-black text-xl sm:text-2xl uppercase text-[#f2efe9]">

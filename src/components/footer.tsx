@@ -54,7 +54,7 @@ export default function Footer() {
             [03] Hardware &amp; Wiring
           </Link>
           <Link href="/how-it-works" className="hover:text-[#ffb300] transition">
-            [04] Kinematics &amp; Viva
+            [04] Kinematics &amp; Math
           </Link>
           <a
             href="https://github.com/tanisheesh/KinetiX"

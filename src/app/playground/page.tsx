@@ -415,7 +415,7 @@ export default function PlaygroundPage() {
         <section className="panel-frame">
           <div className="panel-header">
             <span>
-              AUTONOMOUS STAGE PIPELINE // 5-STATE DETERMINISTIC FINITE AUTOMATON (SLIDE 24)
+              AUTONOMOUS STAGE PIPELINE // 5-STATE DETERMINISTIC FINITE AUTOMATON
             </span>
             <div className="flex items-center gap-3">
               {multiSortEnabled && (
@@ -609,7 +609,7 @@ export default function PlaygroundPage() {
                       : "border-[#3a3834] text-[#ffb300]"
                   }`}
                 >
-                  3-OBJECT SORT (S27)
+                  3-OBJECT SORT
                 </button>
                 <button
                   onClick={() => {
@@ -737,7 +737,7 @@ export default function PlaygroundPage() {
               {/* Upgrade #4: Live Wiring Fault Injector Strip */}
               <div className="pt-2 border-t border-[#222220] flex flex-wrap items-center justify-between gap-2 text-[10px]">
                 <span className="text-[#ff2a2a] font-bold">
-                  WIRING FAULT INJECTOR (SLIDES 10, 16, 18):
+                  WIRING FAULT INJECTOR:
                 </span>
                 <div className="flex flex-wrap items-center gap-1.5">
                   <button
@@ -750,7 +750,7 @@ export default function PlaygroundPage() {
                         : "border-[#3a3834] text-[#88857e]"
                     }`}
                   >
-                    DROP COMMON GND (S18)
+                    DROP COMMON GND
                   </button>
                   <button
                     onClick={() =>
@@ -765,7 +765,7 @@ export default function PlaygroundPage() {
                         : "border-[#3a3834] text-[#88857e]"
                     }`}
                   >
-                    SWAP IN1↔IN2 (S11)
+                    SWAP IN1↔IN2
                   </button>
                   <button
                     onClick={() =>
@@ -780,7 +780,7 @@ export default function PlaygroundPage() {
                         : "border-[#3a3834] text-[#88857e]"
                     }`}
                   >
-                    4.8V BROWNOUT (S16)
+                    4.8V BROWNOUT
                   </button>
                 </div>
               </div>
@@ -822,7 +822,7 @@ export default function PlaygroundPage() {
                   <div className="border border-[#222220] bg-[#080808] p-3.5 space-y-2.5">
                     <div className="flex items-center justify-between text-[10px]">
                       <span className="text-[#ffb300] font-bold">{activePartObj.category}</span>
-                      <span className="text-[#00e676]">{activePartObj.slideRef}</span>
+                      <span className="text-[#00e676]">{activePartObj.busTag}</span>
                     </div>
                     <h3 className="font-display font-black text-xl uppercase text-[#f2efe9]">
                       {activePartObj.name}
@@ -849,7 +849,7 @@ export default function PlaygroundPage() {
                 {/* PANEL A: HC-SR04 TIME-OF-FLIGHT OSCILLOSCOPE */}
                 <div className="panel-frame">
                   <div className="panel-header">
-                    <span>HC-SR04 // TIME-OF-FLIGHT (SLIDE 09)</span>
+                    <span>HC-SR04 // TIME-OF-FLIGHT OSCILLOSCOPE</span>
                     <span
                       className={
                         telemetry.distanceCm <= obstacleThresholdCm
@@ -889,7 +889,7 @@ export default function PlaygroundPage() {
                 {/* PANEL B: L298N DUAL H-BRIDGE SWITCH MATRIX */}
                 <div className="panel-frame">
                   <div className="panel-header">
-                    <span>L298N // H-BRIDGE SWITCHES (SLIDES 10–11)</span>
+                    <span>L298N // H-BRIDGE SWITCH MATRIX</span>
                     <span className="text-[#ffb300]">
                       {telemetry.motorCurrentMa}mA · {telemetry.batteryVoltage}V
                     </span>
@@ -1185,10 +1185,10 @@ export default function PlaygroundPage() {
           </div>
         </section>
 
-        {/* ================= 4. 12-STEP MISSION MATRIX (SLIDES 19 & 20) ================= */}
+        {/* ================= 4. 12-STEP MISSION MATRIX ================= */}
         <section className="panel-frame">
           <div className="panel-header">
-            <span>SYNCHRONIZED 12-STEP EXECUTION LOG (SLIDES 19 &amp; 20)</span>
+            <span>SYNCHRONIZED 12-STEP EXECUTION LOG</span>
             <span>PHASE 1: SEARCH &amp; PICK [01–06] · PHASE 2: CARRY &amp; PLACE [07–12]</span>
           </div>
 

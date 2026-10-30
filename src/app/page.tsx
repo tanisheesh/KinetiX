@@ -27,7 +27,7 @@ float readDistanceCm() {
 }`,
   },
   pinout: {
-    label: "SLIDE 18 PIN MAP",
+    label: "HARDWARE PIN MAP",
     code: `# KINETIX HARDWARE INTERCONNECT & COMMON GROUND TOPOLOGY
 HC-SR04 SONAR    ->  VCC: 5V   | Trig: D10   | Echo: D11   | GND: Common GND
 L298N CHANNEL A  ->  ENA: D5~  | IN1:  D7    | IN2:  D8    | OUT1/2: Left Motors
@@ -155,7 +155,7 @@ export default function LandingPage() {
                 HARDWARE &amp; PINOUT →
               </Link>
               <Link href="/how-it-works" className="brutal-btn w-full sm:w-auto">
-                KINEMATICS &amp; VIVA →
+                KINEMATICS &amp; MATH →
               </Link>
             </div>
           </div>
@@ -226,7 +226,7 @@ export default function LandingPage() {
 
               <div className="border border-[#222220] bg-[#080808] p-3 sm:p-3.5 space-y-1">
                 <div className="text-[10px] text-[#ffb300] uppercase tracking-wider">
-                  GOVERNING TIME-OF-FLIGHT EQUATION [SLIDE 09 · v = 343 m/s]
+                  GOVERNING TIME-OF-FLIGHT EQUATION [40 kHz · v = 343 m/s]
                 </div>
                 <div className="text-[#00e676] text-[11px] sm:text-xs overflow-x-auto custom-scrollbar whitespace-nowrap pb-1">
                   d(cm) = (t_echo × 0.0343 cm/µs) / 2 = t_echo(µs) ÷ 58
@@ -287,7 +287,7 @@ export default function LandingPage() {
         {/* ================= 5-STATE DETERMINISTIC FINITE AUTOMATON ================= */}
         <section className="border-x border-b border-[#222220] bg-[#0e0e0e]">
           <div className="panel-header">
-            <span>AUTONOMOUS CONTROL LOOP // 5-STATE DETERMINISTIC FINITE AUTOMATON (SLIDE 24)</span>
+            <span>AUTONOMOUS CONTROL LOOP // 5-STATE DETERMINISTIC FINITE AUTOMATON</span>
             <span className="text-[#ffb300]">SENSE → THINK → POWER STAGE → ACT</span>
           </div>
 
@@ -311,10 +311,10 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* ================= 12-STEP EXECUTION MATRIX (SLIDES 19 & 20) ================= */}
+        {/* ================= 12-STEP EXECUTION MATRIX ================= */}
         <section className="border-x border-b border-[#222220] bg-[#080808]">
           <div className="panel-header">
-            <span>MISSION EXECUTION PIPELINE // 12-STEP AUTONOMOUS CYCLE (SLIDES 19 &amp; 20)</span>
+            <span>MISSION EXECUTION PIPELINE // 12-STEP AUTONOMOUS CYCLE</span>
             <span>PHASE 1: SEARCH &amp; PICK [01–06] · PHASE 2: CARRY &amp; PLACE [07–12]</span>
           </div>
 
@@ -351,7 +351,7 @@ export default function LandingPage() {
           {/* Left 6 Cols: Hardware Stack */}
           <div className="lg:col-span-6 border-b lg:border-b-0 lg:border-r border-[#222220] bg-[#0e0e0e] flex flex-col justify-between">
             <div className="panel-header">
-              <span>MECHATRONIC BILL OF MATERIALS // 9 CORE MODULES (SLIDES 6–16)</span>
+              <span>MECHATRONIC BILL OF MATERIALS // CORE SUBSYSTEMS</span>
               <Link href="/hardware" className="text-[#ffb300] hover:underline">
                 FULL SCHEMATIC →
               </Link>
@@ -367,7 +367,7 @@ export default function LandingPage() {
                     <p className="text-xs text-[#88857e] line-clamp-2">{hw.role}</p>
                   </div>
                   <span className="font-mono text-[10px] px-2 py-1 bg-[#151515] border border-[#222220] text-[#88857e] shrink-0 self-start sm:self-center">
-                    {hw.slideRef}
+                    {hw.busTag}
                   </span>
                 </div>
               ))}
@@ -431,7 +431,7 @@ export default function LandingPage() {
         <section className="border-x border-b border-[#222220] bg-[#0e0e0e]">
           <div className="panel-header">
             <span>COMPARATIVE EVALUATION // MOBILE PICK-AND-PLACE ARCHITECTURES</span>
-            <span>SLIDES 03, 25, 26, 27</span>
+            <span>DETERMINISTIC CONTROL BENCHMARK</span>
           </div>
 
           <div className="overflow-x-auto custom-scrollbar">

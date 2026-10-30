@@ -12,7 +12,7 @@ export interface HardwareModule {
   name: string;
   shortName: string;
   category: string;
-  slideRef: string;
+  busTag: string;
   accent: string;
   role: string;
   engineeringNote: string;
@@ -77,7 +77,7 @@ export const FSM_STAGES: {
     code: "STATE_03",
     label: "CARRY & AVOID",
     condition: "Gripper Locked",
-    action: "Navigates to target; if d ≤ 20 cm, halts and executes differential spin-in-place bypass",
+    action: "Navigates to target; if d ≤ 20 cm, halts and executes orthogonal 90° spin-in-place bypass",
   },
   {
     id: "PLACE",
@@ -202,7 +202,7 @@ export const HARDWARE_MODULES: HardwareModule[] = [
     name: "Arduino UNO R3 (ATmega328P)",
     shortName: "Arduino UNO",
     category: "CONTROLLER // BRAIN",
-    slideRef: "Slides 6, 7, 17, 18",
+    busTag: "16 MHz · 5V GPIO",
     accent: "#00e5ff",
     role: "Executes the 5-state control loop at 16 MHz: triggers the HC-SR04, times the Echo pulse via pulseIn(), computes distance d = t / 58, drives L298N direction/PWM pins, and generates the 50 Hz servo control signal.",
     engineeringNote:
@@ -233,11 +233,11 @@ export const HARDWARE_MODULES: HardwareModule[] = [
     name: "HC-SR04 Ultrasonic Ranging Module",
     shortName: "HC-SR04 Sonar",
     category: "SENSING // INPUT",
-    slideRef: "Slides 8, 9, 17, 18",
+    busTag: "40 kHz · 15° CONE",
     accent: "#ffb300",
     role: "Non-contact acoustic time-of-flight distance sensor. Emits an 8-cycle burst of 40 kHz ultrasound from Transmitter (T) and measures round-trip reflection time at Receiver (R).",
     engineeringNote:
-      "Sound travels at 343 m/s (0.0343 cm/µs). Dividing round-trip travel by 2 yields d = (t × 0.0343) / 2 = t / 58.3 cm. At d = 20 cm, Echo stays HIGH for exactly 1160 µs.",
+      "Sound travels at 343 m/s (0.0343 cm/µs). Dividing round-trip travel by 2 yields d = (t × 0.0343) / 2 = t / 58.3 cm. At d = 20 cm, Echo stays HIGH for 1160 µs.",
     specs: [
       { label: "Detection Range", value: "2 cm – 400 cm" },
       { label: "Acoustic Frequency", value: "40 kHz (8-Pulse Burst)" },
@@ -260,7 +260,7 @@ export const HARDWARE_MODULES: HardwareModule[] = [
     name: "L298N Dual Full-Bridge Driver",
     shortName: "L298N H-Bridge",
     category: "POWER STAGE // MUSCLE",
-    slideRef: "Slides 10, 11, 17, 18",
+    busTag: "2A/CH · DUAL H-BRIDGE",
     accent: "#ff2a2a",
     role: "Amplifies low-current 5 V logic signals from the Arduino into high-current bidirectional 7.4 V–12 V power for two independent DC motor channels using dual H-Bridge switch networks (S1–S4).",
     engineeringNote:
@@ -288,7 +288,7 @@ export const HARDWARE_MODULES: HardwareModule[] = [
     name: "1:48 Geared DC Motors & 65mm Wheels",
     shortName: "DC Gearmotors",
     category: "LOCOMOTION // DRIVE",
-    slideRef: "Slides 6, 12, 16",
+    busTag: "1:48 TORQUE · DIFF DRIVE",
     accent: "#00e676",
     role: "Converts electrical power into high-torque mechanical wheel rotation. Differential speed control between left and right wheel pairs steers and spins the robot without a steering rack.",
     engineeringNote:
@@ -313,7 +313,7 @@ export const HARDWARE_MODULES: HardwareModule[] = [
     name: "SG90 Closed-Loop Servo & 2-Jaw Gripper",
     shortName: "SG90 Gripper",
     category: "MANIPULATION // ACTUATOR",
-    slideRef: "Slides 13, 14, 15",
+    busTag: "50 Hz PWM · 1.8 kg·cm",
     accent: "#c084fc",
     role: "Actuates the parallel two-jaw mechanical gripper to open wide (90°) during approach and clamp firmly (30°) around the hollow non-metallic cylinder during transport.",
     engineeringNote:
@@ -339,7 +339,7 @@ export const HARDWARE_MODULES: HardwareModule[] = [
     name: "Acrylic Chassis, 7.4V Li-Ion Pack & Harness",
     shortName: "Chassis & Power",
     category: "STRUCTURAL & POWER",
-    slideRef: "Slides 5, 6, 16, 18, 22",
+    busTag: "7.4V BUS · COMMON GND",
     accent: "#ff5500",
     role: "Provides rigid mechanical mounting with front-mounted sensor/gripper, mid-mounted controller/driver, and rear-mounted 2×18650 Li-ion battery pack for longitudinal balance.",
     engineeringNote:
@@ -382,7 +382,7 @@ export const FULL_ARDUINO_SKETCH = `// =========================================
 
 #include <Servo.h>
 
-// --- Pin Definitions (Slide 18 Hardware Wiring Map) ---
+// --- Hardware Pin Definitions ---
 const int TRIG_PIN  = 10;  // HC-SR04 Trigger Input (10 us HIGH pulse)
 const int ECHO_PIN  = 11;  // HC-SR04 Echo Output (Time-of-Flight pulse)
 
@@ -396,7 +396,7 @@ const int IN4_PIN   = 2;   // Right H-Bridge Direction Input 4
 
 const int SERVO_PIN = 9;   // SG90 Gripper Servo PWM Signal (50 Hz / 20 ms)
 
-// --- Tunable Control Thresholds (Slides 15, 21, 24) ---
+// --- Tunable Control Thresholds ---
 const int GRIP_OPEN_DEG     = 90;  // 1.50 ms pulse -> Jaws open wide
 const int GRIP_CLOSED_DEG   = 30;  // 1.17 ms pulse -> Jaws clamp cylinder
 const float PICK_DIST_CM    = 5.0; // Stop & grip distance threshold
@@ -438,7 +438,7 @@ float readDistanceCm() {
 
   long durationUs = pulseIn(ECHO_PIN, HIGH, 30000);
   if (durationUs == 0) return 400.0;
-  return (float)durationUs / 58.0; // Slide 9: d = (t * 0.0343) / 2 = t / 58
+  return (float)durationUs / 58.0; // Time-of-Flight: d = (t * 0.0343) / 2 = t / 58
 }
 
 void forward(int pwm) {
@@ -515,9 +515,9 @@ export const PRESET_SCENARIOS: PresetScenario[] = [
   {
     id: "standard",
     code: "SCEN_01",
-    name: "CLASSIC OBSTACLE BYPASS (SLIDE 21)",
+    name: "CLASSIC OBSTACLE BYPASS",
     description:
-      "Acquire the hollow cylinder in the Pick Zone (d ≤ 5 cm), detect the central obstacle at d ≤ 20 cm, execute a differential spin-in-place bypass, and deposit at the Target Zone.",
+      "Acquire the hollow cylinder in the Pick Zone (d ≤ 5 cm), detect the central obstacle at d ≤ 20 cm, execute an orthogonal 90° spin-in-place bypass, and deposit at the Target Zone.",
     cylinderPos: { x: -3.2, z: 0.0 },
     targetPos: { x: 5.2, z: 0.0 },
     obstacles: [
@@ -570,9 +570,9 @@ export const PRESET_SCENARIOS: PresetScenario[] = [
   {
     id: "acoustic_stress",
     code: "SCEN_03",
-    name: "SLIDE 26 ACOUSTIC LIMITATIONS STRESS-TEST",
+    name: "ACOUSTIC LIMITATIONS STRESS-TEST",
     description:
-      "Evaluates HC-SR04 physical failure modes (Slide 26): a 45° angled specular wall that deflects 40 kHz echoes and an acoustic foam block that absorbs sound unless YOLOv8 Vision is enabled.",
+      "Evaluates HC-SR04 physical failure modes: a 45° angled specular wall that deflects 40 kHz echoes and an acoustic foam block that absorbs sound unless YOLOv8 Vision is enabled.",
     cylinderPos: { x: -3.2, z: 0.0 },
     targetPos: { x: 5.2, z: 0.0 },
     obstacles: [
@@ -602,46 +602,46 @@ export const PRESET_SCENARIOS: PresetScenario[] = [
   },
 ];
 
-export const VIVA_DEFENSE_QA = [
+export const DESIGN_RATIONALE_QA = [
   {
-    code: "Q_01",
-    slide: "Slide 10",
-    question: "Why can't we drive the DC motors directly from the Arduino UNO digital pins?",
+    code: "ARCH_01",
+    domain: "POWER STAGE ISOLATION",
+    question: "Why isolate the DC motors behind an L298N Dual H-Bridge instead of driving them from Arduino GPIO pins?",
     answer:
       "Three hardware constraints: (1) Current limit: an ATmega328P I/O pin sources at most ~20 mA, whereas a 1:48 geared DC motor draws 150–500 mA continuously and >1 A at stall. (2) Voltage mismatch: the motors require 6–12 V for rated torque while Arduino logic operates at 5 V. (3) Inductive Back-EMF: switching inductive motor windings generates reverse voltage spikes that would destroy the microcontroller without an H-Bridge driver.",
   },
   {
-    code: "Q_02",
-    slide: "Slide 9",
+    code: "ARCH_02",
+    domain: "ACOUSTIC TIME-OF-FLIGHT",
     question: "Where does the constant 58 come from in the HC-SR04 formula d (cm) = t (µs) ÷ 58?",
     answer:
       "At room temperature, sound travels in air at v ≈ 343 m/s = 0.0343 cm/µs. Because the ultrasonic burst travels from the transmitter to the obstacle AND reflects back to the receiver (total path = 2d), one-way distance is d = (t × 0.0343) / 2 = t × 0.01715 cm. Taking the reciprocal gives 1 / 0.01715 ≈ 58.3 µs/cm, so dividing Echo HIGH time in microseconds by 58 yields distance in centimeters.",
   },
   {
-    code: "Q_03",
-    slide: "Slides 13, 14, 17",
+    code: "ARCH_03",
+    domain: "CLOSED-LOOP ACTUATION",
     question: "Why is the SG90 servo connected directly to Arduino Pin D9 instead of through the L298N driver?",
     answer:
       "Unlike a raw two-wire DC motor, a hobby servo is a complete closed-loop mechatronic subsystem containing its own internal H-bridge driver IC, gear train, and feedback potentiometer. Its power comes from the 5 V rail, while Pin D9 only transmits a low-current (<5 mA) 50 Hz PWM timing signal (1.0 ms to 2.0 ms pulse width) instructing the internal comparator which target angle to hold.",
   },
   {
-    code: "Q_04",
-    slide: "Slides 19, 24, 26",
+    code: "ARCH_04",
+    domain: "FINITE STATE MACHINE",
     question: "With only a single ultrasonic distance sensor, how does the robot distinguish the pick object from an obstacle?",
     answer:
-      "By task phase inside the 5-state Deterministic Finite Automaton (DFA). In the SEARCH state, the arena pick zone is ahead, so the first ultrasonic reflection is treated as the target cylinder (approached down to d ≤ 5 cm and gripped). Once the state transitions to CARRY, the payload is already held in the jaws, so any subsequent reflection with d ≤ 20 cm is classified as an obstacle and triggers the differential spin bypass.",
+      "By task phase inside the 5-state Deterministic Finite Automaton (DFA). In the SEARCH state, the arena pick zone is ahead, so the first ultrasonic reflection is treated as the target cylinder (approached down to d ≤ 5 cm and gripped). Once the state transitions to CARRY, the payload is already held in the jaws, so any subsequent reflection with d ≤ 20 cm is classified as an obstacle and triggers the orthogonal 90° spin bypass.",
   },
   {
-    code: "Q_05",
-    slide: "Slide 18",
+    code: "ARCH_05",
+    domain: "REFERENCE TOPOLOGY",
     question: "Why must the Battery (–), L298N GND, Arduino GND, HC-SR04 GND, and SG90 Brown wire all be tied together?",
     answer:
       "All digital logic signals (5 V HIGH, 0 V LOW) and PWM duty pulses are potential differences measured relative to a 0 V reference node. Without a unified Common Ground bus, the Arduino and L298N float at different reference potentials, causing the H-Bridge logic gates and servo comparator to misinterpret control signals and behave randomly.",
   },
   {
-    code: "Q_06",
-    slide: "Slides 26 & 27",
-    question: "What are the physical limitations of the current design and how does v2 (Future Scope) solve them?",
+    code: "ARCH_06",
+    domain: "SENSOR FUSION ROADMAP",
+    question: "What are the physical limitations of single-cone ultrasound and how does v2 solve them?",
     answer:
       "(1) Narrow 15° beam cone and acoustic absorption/deflection on soft foam or >45° angled walls → solved by adding a camera + YOLOv8 object detection and 360° LiDAR. (2) Open-loop target distance estimation drifts under wheel slip or battery voltage sag → solved by wheel encoders and ROS-based SLAM localization. (3) Single lightweight cylindrical payload (1.8 kg·cm SG90 limit) → solved by a parallel-jaw high-torque metal-gear gripper and multi-DOF robotic arm.",
   },

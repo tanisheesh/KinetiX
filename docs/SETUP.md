@@ -46,15 +46,15 @@ KinetiX will be running at `http://localhost:3000`.
 
 - `http://localhost:3000/` — Specification, 5-State DFA & 12-Step Matrix
 - `http://localhost:3000/playground` — Interactive 3D Digital Twin Stage & Telemetry Workbench
-- `http://localhost:3000/hardware` — 9-Module Datasheets, Slide 18 Wiring Schematic & `.ino` Download
-- `http://localhost:3000/how-it-works` — Kinematics, Truth Tables, S26/27 Upgrades & Viva Defense Bank
+- `http://localhost:3000/hardware` — 9-Module Datasheets, Fault Wiring Schematic & `.ino` Download
+- `http://localhost:3000/how-it-works` — Kinematics, Truth Tables, V2 Upgrades & Design Rationale
 
 ---
 
 ## 4. Flashing the Arduino UNO Firmware (Optional Physical Build)
 
 1. Open `http://localhost:3000/hardware` and click **DOWNLOAD .INO ↓** to save `KinetiX_Autonomous_Pick_Place.ino`.
-2. Wire the components according to the Slide 18 Pin Map (`D10` Trig, `D11` Echo, `D5/D7/D8` Left Motor, `D6/D4/D2` Right Motor, `D9` SG90 Servo, and unified Common Ground).
+2. Wire the components according to the Hardware Pin Map (`D10` Trig, `D11` Echo, `D5/D7/D8` Left Motor, `D6/D4/D2` Right Motor, `D9` SG90 Servo, and unified Common Ground).
 3. Open the `.ino` file in Arduino IDE, select **Board: Arduino UNO**, and click **Upload**.
 
 ---

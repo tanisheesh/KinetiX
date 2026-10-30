@@ -13,7 +13,7 @@ const WIRING_FAULTS: Record<
   {
     code: string;
     label: string;
-    slide: string;
+    domain: string;
     status: string;
     diagnosis: string;
     electricalEffect: string;
@@ -21,17 +21,17 @@ const WIRING_FAULTS: Record<
 > = {
   none: {
     code: "NOMINAL",
-    label: "ALL WIRES NOMINAL (SLIDE 18)",
-    slide: "Slide 18",
+    label: "ALL WIRES NOMINAL",
+    domain: "REFERENCE TOPOLOGY",
     status: "PASS // BUS HEALTHY",
     diagnosis:
-      "All 9 modules share a unified 0V Common Ground reference. L298N receives 7.4V from the 2x18650 pack (delivering ~5.4V to motors after the 2V BJT drop), while Arduino GPIO pins source <5mA logic signals.",
+      "All modules share a unified 0V Common Ground reference. L298N receives 7.4V from the 2x18650 pack (delivering ~5.4V to motors after the 2V BJT drop), while Arduino GPIO pins source <5mA logic signals.",
     electricalEffect: "Vin = 7.4V | V_logic = 5.0V | I_gpio = 4.2mA (<20mA limit)",
   },
   no_gnd: {
     code: "FAULT_01",
     label: "DISCONNECT COMMON GND",
-    slide: "Slide 18",
+    domain: "GROUND ISOLATION FAULT",
     status: "CRITICAL // FLOATING REFERENCE",
     diagnosis:
       "Arduino GND and L298N Battery (–) are isolated. Because digital HIGH (5V) is measured relative to 0V GND, the L298N input gates see floating random potentials and trigger erratic, uncontrollable motor switching.",
@@ -40,7 +40,7 @@ const WIRING_FAULTS: Record<
   swap_in1_in2: {
     code: "FAULT_02",
     label: "SWAP IN1 ↔ IN2 POLARITY",
-    slide: "Slides 10 & 11",
+    domain: "H-BRIDGE PHASE INVERSION",
     status: "ERROR // H-BRIDGE REVERSED",
     diagnosis:
       "Pin D7 and D8 are crossed on Channel A. When forward() sets D7=HIGH and D8=LOW, the L298N closes S3+S2 instead of S1+S4, spinning the left wheels in reverse while right wheels drive forward — locking the rover in a continuous left spin.",
@@ -49,7 +49,7 @@ const WIRING_FAULTS: Record<
   brownout: {
     code: "FAULT_03",
     label: "BATTERY SAG (4.8V < 7.0V)",
-    slide: "Slides 11 & 16",
+    domain: "UNDERVOLTAGE BROWNOUT",
     status: "BROWNOUT // MCU RESET LOOP",
     diagnosis:
       "The L298N drops ~2.0V internally across its bipolar transistors and its 78M05 5V regulator requires Vin > 7.0V. At 4.8V input, motors receive only ~2.8V (stalling under load) and motor start-up current dips Vcc below the ATmega328P brownout threshold, resetting the Arduino.",
@@ -58,7 +58,7 @@ const WIRING_FAULTS: Record<
   direct_gpio: {
     code: "FAULT_04",
     label: "BYPASS L298N (DIRECT GPIO)",
-    slide: "Slides 7 & 10",
+    domain: "GPIO OVERCURRENT & BACK-EMF",
     status: "DAMAGE // PIN D7 OVERCURRENT",
     diagnosis:
       "Connecting a 1:48 DC gearmotor directly to Arduino Pin D7 draws 150–500 mA (and >1A at stall) from a pin rated for 20 mA absolute continuous output, burning out the ATmega328P output transistor and injecting inductive back-EMF spikes into the 5V rail.",
@@ -100,7 +100,7 @@ export default function HardwarePage() {
         <div className="border border-[#222220] bg-[#0e0e0e] p-5 sm:p-8 lg:p-10 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div>
             <div className="font-mono text-[11px] sm:text-xs text-[#ffb300] uppercase tracking-widest mb-2">
-              // MECHATRONIC ARCHITECTURE &amp; PINOUT TOPOLOGY (SLIDES 05–18)
+              // MECHATRONIC ARCHITECTURE &amp; PINOUT TOPOLOGY
             </div>
             <h1 className="font-display font-black text-3xl sm:text-5xl lg:text-6xl uppercase text-[#f2efe9]">
               HARDWARE &amp; WIRING SPECIFICATION
@@ -122,7 +122,7 @@ export default function HardwarePage() {
           <div className="lg:col-span-4 border-b lg:border-b-0 lg:border-r border-[#222220] divide-y divide-[#222220]">
             <div className="panel-header">
               <span>SUBSYSTEM SELECTOR [01–06]</span>
-              <span>SLIDES 6–16</span>
+              <span>MECHATRONIC BOM</span>
             </div>
             {HARDWARE_MODULES.map((m) => {
               const active = m.id === selectedId;
@@ -155,7 +155,7 @@ export default function HardwarePage() {
                         : "border-[#3a3834] text-[#88857e]"
                     }`}
                   >
-                    {m.slideRef}
+                    {m.busTag}
                   </span>
                 </button>
               );
@@ -167,7 +167,7 @@ export default function HardwarePage() {
             <div>
               <div className="panel-header">
                 <span>DATASHEET // {activeModule.name}</span>
-                <span className="text-[#00e676] font-bold">{activeModule.slideRef}</span>
+                <span className="text-[#00e676] font-bold">{activeModule.busTag}</span>
               </div>
 
               <div className="p-5 sm:p-8 space-y-6">
@@ -208,7 +208,7 @@ export default function HardwarePage() {
 
                 <div>
                   <div className="font-mono text-xs text-[#00e676] uppercase tracking-wider mb-2.5">
-                    ACTIVE SIGNAL &amp; POWER TERMINALS (SLIDE 18)
+                    ACTIVE SIGNAL &amp; POWER TERMINALS
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 font-mono text-xs">
                     {activeModule.pinsUsed.map((pin) => (
@@ -234,12 +234,10 @@ export default function HardwarePage() {
           </div>
         </section>
 
-        {/* ================= 2. INTERACTIVE WIRING VALIDATOR & FAULT INJECTION LAB (UPGRADE #4) ================= */}
+        {/* ================= 2. INTERACTIVE WIRING VALIDATOR & FAULT INJECTION LAB ================= */}
         <section className="panel-frame">
           <div className="panel-header">
-            <span>
-              INTERACTIVE WIRING SCHEMATIC &amp; FAULT SIMULATOR (SLIDES 10, 16, 17, 18)
-            </span>
+            <span>INTERACTIVE WIRING SCHEMATIC &amp; FAULT SIMULATOR</span>
             <span
               className={
                 activeFault === "none"
@@ -254,7 +252,7 @@ export default function HardwarePage() {
           {/* Fault Selector Strip */}
           <div className="p-3.5 border-b border-[#222220] bg-[#111111] flex flex-wrap items-center justify-between gap-2 font-mono text-xs">
             <span className="text-[#88857e] text-[11px]">
-              INJECT WIRING FAULT FOR VIVA DEMO:
+              INJECT ELECTRICAL FAULT CONDITION:
             </span>
             <div className="flex flex-wrap items-center gap-1.5">
               {(Object.keys(WIRING_FAULTS) as FaultType[]).map((fKey) => {
@@ -292,7 +290,7 @@ export default function HardwarePage() {
                     activeFault === "none" ? "text-[#00e676]" : "text-[#ff2a2a]"
                   }`}
                 >
-                  [{faultInfo.code} // {faultInfo.slide}]:
+                  [{faultInfo.code} // {faultInfo.domain}]:
                 </span>
                 <span className="text-[#f2efe9] font-bold">{faultInfo.label}</span>
               </div>
@@ -308,7 +306,6 @@ export default function HardwarePage() {
           {/* Interactive SVG Schematic */}
           <div className="p-4 sm:p-6 bg-[#080808] overflow-x-auto custom-scrollbar">
             <svg viewBox="0 0 920 330" className="w-full min-w-[760px] h-auto font-mono">
-              {/* Unified Common Ground Bar */}
               <rect
                 x="20"
                 y="286"
@@ -328,7 +325,7 @@ export default function HardwarePage() {
                 fontWeight="bold"
               >
                 {activeFault === "no_gnd"
-                  ? "✖ COMMON GROUND DISCONNECTED — FLOATING LOGIC REFERENCE FAULT (SLIDE 18)"
+                  ? "✖ COMMON GROUND DISCONNECTED — FLOATING LOGIC REFERENCE FAULT"
                   : "UNIFIED COMMON GROUND BUS (0V REFERENCE) — Battery (–) · Arduino GND · L298N GND · HC-SR04 GND · SG90 Brown"}
               </text>
 
@@ -461,7 +458,6 @@ export default function HardwarePage() {
               />
               <line x1="782" y1="170" x2="782" y2="286" stroke="#88857e" strokeWidth="2" />
 
-              {/* Direct GPIO Fault Wire */}
               {activeFault === "direct_gpio" && (
                 <path
                   d="M 580 200 L 625 200 L 625 225 L 670 225"
@@ -503,7 +499,7 @@ export default function HardwarePage() {
         {/* ================= 3. PRODUCTION ARDUINO .INO FIRMWARE ================= */}
         <section className="panel-frame">
           <div className="panel-header">
-            <span>PRODUCTION FIRMWARE // KinetiX_Autonomous_Pick_Place.ino (SLIDE 24)</span>
+            <span>PRODUCTION FIRMWARE // KinetiX_Autonomous_Pick_Place.ino</span>
             <div className="flex items-center gap-2">
               <button onClick={handleCopyCode} className="brutal-btn !py-1 !px-3 !text-[10px]">
                 {copied ? "COPIED ✓" : "COPY SKETCH"}
