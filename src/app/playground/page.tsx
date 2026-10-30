@@ -381,9 +381,22 @@ export default function PlaygroundPage() {
   }, [mode]);
 
   const s1Closed = telemetry.in1 === 1 && telemetry.in2 === 0;
-  const s4Closed = telemetry.in1 === 1 && telemetry.in2 === 0;
+  const s4Closed =
+    (telemetry.in1 === 1 && telemetry.in2 === 0) ||
+    (telemetry.in1 === 1 && telemetry.in2 === 1);
   const s3Closed = telemetry.in1 === 0 && telemetry.in2 === 1;
-  const s2Closed = telemetry.in1 === 0 && telemetry.in2 === 1;
+  const s2Closed =
+    (telemetry.in1 === 0 && telemetry.in2 === 1) ||
+    (telemetry.in1 === 1 && telemetry.in2 === 1);
+  const isBraking = telemetry.in1 === 1 && telemetry.in2 === 1;
+
+  const getChannelLabel = (a: number, b: number, pwm: number) => {
+    if (a === 1 && b === 1) return "BRAKE";
+    if (pwm === 0) return "STOP";
+    if (a === 1 && b === 0) return "FWD";
+    if (a === 0 && b === 1) return "REV";
+    return "IDLE";
+  };
 
   const activeStepObj =
     TWELVE_STEPS.find((s) => s.step === telemetry.stepNum) || TWELVE_STEPS[0];
@@ -559,14 +572,26 @@ export default function PlaygroundPage() {
             <div className="px-3.5 py-2.5 border-b border-[#222220] bg-[#111111] flex flex-wrap items-center justify-between gap-2 font-mono text-xs">
               <div className="flex flex-wrap items-center gap-1.5">
                 <button
-                  onClick={() => setIsRunning((r) => !r)}
+                  onClick={() => {
+                    if (telemetry.state === "DONE") {
+                      handleReset();
+                    } else {
+                      setIsRunning((r) => !r);
+                    }
+                  }}
                   className={`px-3 py-1 border font-bold text-[11px] cursor-pointer ${
-                    isRunning
+                    telemetry.state === "DONE"
+                      ? "bg-[#00e676] text-[#080808] border-[#00e676]"
+                      : isRunning
                       ? "bg-[#ffb300] text-[#080808] border-[#ffb300]"
                       : "bg-[#00e676] text-[#080808] border-[#00e676]"
                   }`}
                 >
-                  {isRunning ? "PAUSE ❚❚" : "RUN ▶"}
+                  {telemetry.state === "DONE"
+                    ? "REPLAY ▶"
+                    : isRunning
+                    ? "PAUSE ❚❚"
+                    : "RUN ▶"}
                 </button>
                 <button
                   onClick={handleReset}
@@ -983,10 +1008,27 @@ export default function PlaygroundPage() {
                           y1="62"
                           x2={s2Closed ? "55" : "42"}
                           y2="78"
-                          stroke={s2Closed ? "#ff2a2a" : "#4a4843"}
+                          stroke={
+                            isBraking
+                              ? "#ffb300"
+                              : s2Closed
+                              ? "#ff2a2a"
+                              : "#4a4843"
+                          }
                           strokeWidth="3"
                         />
-                        <text x="26" y="74" fill={s2Closed ? "#ff2a2a" : "#88857e"} fontSize="9">
+                        <text
+                          x="26"
+                          y="74"
+                          fill={
+                            isBraking
+                              ? "#ffb300"
+                              : s2Closed
+                              ? "#ff2a2a"
+                              : "#88857e"
+                          }
+                          fontSize="9"
+                        >
                           S2
                         </text>
 
@@ -1007,10 +1049,27 @@ export default function PlaygroundPage() {
                           y1="62"
                           x2={s4Closed ? "145" : "158"}
                           y2="78"
-                          stroke={s4Closed ? "#00e676" : "#4a4843"}
+                          stroke={
+                            isBraking
+                              ? "#ffb300"
+                              : s4Closed
+                              ? "#00e676"
+                              : "#4a4843"
+                          }
                           strokeWidth="3"
                         />
-                        <text x="162" y="74" fill={s4Closed ? "#00e676" : "#88857e"} fontSize="9">
+                        <text
+                          x="162"
+                          y="74"
+                          fill={
+                            isBraking
+                              ? "#ffb300"
+                              : s4Closed
+                              ? "#00e676"
+                              : "#88857e"
+                          }
+                          fontSize="9"
+                        >
                           S4
                         </text>
 
@@ -1019,7 +1078,15 @@ export default function PlaygroundPage() {
                           y1="52"
                           x2="84"
                           y2="52"
-                          stroke={s1Closed ? "#00e676" : "#4a4843"}
+                          stroke={
+                            isBraking
+                              ? "#ffb300"
+                              : s1Closed
+                              ? "#00e676"
+                              : s3Closed
+                              ? "#ff2a2a"
+                              : "#4a4843"
+                          }
                           strokeWidth="2.5"
                         />
                         <line
@@ -1027,7 +1094,15 @@ export default function PlaygroundPage() {
                           y1="52"
                           x2="145"
                           y2="52"
-                          stroke={s4Closed ? "#00e676" : "#4a4843"}
+                          stroke={
+                            isBraking
+                              ? "#ffb300"
+                              : s4Closed
+                              ? "#00e676"
+                              : s3Closed
+                              ? "#ff2a2a"
+                              : "#4a4843"
+                          }
                           strokeWidth="2.5"
                         />
                         <circle
@@ -1035,7 +1110,15 @@ export default function PlaygroundPage() {
                           cy="52"
                           r="15"
                           fill="#111111"
-                          stroke={s1Closed ? "#00e676" : "#4a4843"}
+                          stroke={
+                            isBraking
+                              ? "#ffb300"
+                              : s1Closed
+                              ? "#00e676"
+                              : s3Closed
+                              ? "#ff2a2a"
+                              : "#4a4843"
+                          }
                           strokeWidth="2.5"
                         />
                         <text x="95" y="56" fill="#f2efe9" fontSize="11" fontWeight="bold">
@@ -1044,16 +1127,34 @@ export default function PlaygroundPage() {
                       </svg>
 
                       <div className="grid grid-cols-2 sm:grid-cols-1 lg:grid-cols-2 xl:grid-cols-1 gap-1.5 text-[10px] w-full">
-                        <div className="border border-[#222220] bg-[#111111] p-1.5">
-                          <span className="text-[#88857e]">LEFT (A): </span>
-                          <span className="text-[#f2efe9] font-bold">
-                            IN1={telemetry.in1} IN2={telemetry.in2}
+                        <div className="border border-[#222220] bg-[#111111] p-1.5 flex items-center justify-between gap-1">
+                          <div>
+                            <span className="text-[#88857e]">LEFT: </span>
+                            <span className="text-[#f2efe9] font-bold">
+                              {telemetry.in1}/{telemetry.in2}
+                            </span>
+                          </div>
+                          <span className="text-[#00e676] font-bold">
+                            {getChannelLabel(
+                              telemetry.in1,
+                              telemetry.in2,
+                              telemetry.leftPwm
+                            )}
                           </span>
                         </div>
-                        <div className="border border-[#222220] bg-[#111111] p-1.5">
-                          <span className="text-[#88857e]">RIGHT (B): </span>
-                          <span className="text-[#f2efe9] font-bold">
-                            IN3={telemetry.in3} IN4={telemetry.in4}
+                        <div className="border border-[#222220] bg-[#111111] p-1.5 flex items-center justify-between gap-1">
+                          <div>
+                            <span className="text-[#88857e]">RIGHT: </span>
+                            <span className="text-[#f2efe9] font-bold">
+                              {telemetry.in3}/{telemetry.in4}
+                            </span>
+                          </div>
+                          <span className="text-[#00e676] font-bold">
+                            {getChannelLabel(
+                              telemetry.in3,
+                              telemetry.in4,
+                              telemetry.rightPwm
+                            )}
                           </span>
                         </div>
                       </div>
