@@ -483,10 +483,10 @@ export default function PlaygroundPage() {
           </div>
 
           {/* Live Stage Status Readout */}
-          <div className="px-4 py-2.5 bg-[#080808] flex flex-col sm:flex-row sm:items-center justify-between gap-2 font-mono text-xs">
-            <div className="flex items-center gap-2.5 min-w-0">
+          <div className="px-3.5 sm:px-4 py-2.5 bg-[#080808] flex flex-col sm:flex-row sm:items-center justify-between gap-2 font-mono text-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-2.5 min-w-0">
               <span
-                className={`px-2 py-0.5 text-[10px] font-bold shrink-0 ${
+                className={`px-2 py-0.5 text-[10px] font-bold self-start sm:self-auto shrink-0 ${
                   anyFaultActive
                     ? "bg-[#ff2a2a] text-[#f2efe9]"
                     : "bg-[#ffb300] text-[#080808]"
@@ -496,7 +496,9 @@ export default function PlaygroundPage() {
                   ? "HARDWARE FAULT ACTIVE"
                   : `STEP ${String(activeStepObj.step).padStart(2, "0")} // ${activeStepObj.title}`}
               </span>
-              <span className="text-[#f2efe9] truncate">{telemetry.subStageText}</span>
+              <span className="text-[#f2efe9] text-[11px] sm:text-xs break-words sm:truncate">
+                {telemetry.subStageText}
+              </span>
             </div>
             <span className="text-[11px] text-[#00e676] shrink-0">
               {telemetry.motorCurrentMa} mA · {telemetry.batteryVoltage} V
@@ -507,7 +509,7 @@ export default function PlaygroundPage() {
         {/* ================= 2. MAIN 12-COLUMN PLAYGROUND WORKBENCH ================= */}
         <section className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
           {/* LEFT 8 COLS: DEDICATED 3D DIGITAL TWIN STAGE */}
-          <div className="lg:col-span-8 panel-frame flex flex-col">
+          <div className="lg:col-span-8 panel-frame flex flex-col min-w-0">
             {/* Stage Header with Camera Switcher + Audio + PiP */}
             <div className="panel-header">
               <div className="flex items-center gap-2">
@@ -868,7 +870,7 @@ export default function PlaygroundPage() {
           </div>
 
           {/* RIGHT 4 COLS: HARDWARE TELEMETRY STACK + LIVE C++ IDE */}
-          <div className="lg:col-span-4 space-y-4">
+          <div className="lg:col-span-4 space-y-4 min-w-0">
             {cameraMode === "xray" ? (
               <div className="panel-frame">
                 <div className="panel-header">

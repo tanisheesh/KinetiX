@@ -386,7 +386,7 @@ export default function LandingPage() {
             <div>
               <div className="panel-header">
                 <span>FIRMWARE &amp; QUICKSTART // ARDUINO IDE / CLI</span>
-                <div className="flex items-center gap-1">
+                <div className="flex flex-wrap items-center gap-1">
                   {(Object.keys(QUICKSTART_TABS) as Array<keyof typeof QUICKSTART_TABS>).map(
                     (key) => (
                       <button
