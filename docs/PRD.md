@@ -14,9 +14,9 @@ Entry-level autonomous robotics systems suffer from two compounding failure mode
 
 ## 2. Goals (v1 / MVP)
 
-1. Deliver a deterministic 60 FPS 3D WebGL Digital Twin (`/playground`) that simulates the complete 5-state autonomous pick-and-place cycle (`SEARCH` → `PICK` → `CARRY` → `PLACE` → `DONE`) with real-time 15° ultrasonic cone raycasting, solid Oriented Bounding Box (OBB) collision physics, and orthogonal $90^\circ$ box-bypass maneuvers.
-2. Provide an In-Browser C++ Firmware Patcher (`EDIT & FLASH C++ ⚡`), A/B Ghost Fixed-Path Race comparison, 3-Object Warehouse Color Sorting, Click-to-Draw Maze Builder, and dual-viewport Picture-in-Picture (`NOSE_CAM // POV`) camera.
-3. Expose pin-level hardware telemetry in real time: dual-trace HC-SR04 oscilloscope (`TRIG D10 10µs` and `ECHO D11 t µs`), L298N H-Bridge switch matrix ($S_1\text{–}S_4$), 120-sample rolling Blackbox Strip Chart (`Sonar d(cm)`, `Motor Current I(mA)`, `Battery V(volts)`) with `.CSV`/`.JSON` export, and Web Audio API procedural sound synthesis.
+1. Deliver a deterministic 60 FPS 3D WebGL Digital Twin (`/playground`) that simulates the complete 5-state autonomous pick-and-place cycle (`SEARCH` → `PICK` → `CARRY` → `PLACE` → `DONE`) with real-time 15° ultrasonic cone raycasting, solid Oriented Bounding Box (OBB) collision physics, and a $57\times31$ 2D Occupancy Grid + C-Space A\* Pathfinder with line-of-sight string-pulling and `REVERSE_CLEAR` backup reflexes.
+2. Provide an In-Browser C++ Firmware Patcher (`EDIT & FLASH C++ ⚡`), A/B Ghost Fixed-Path Race comparison, 3-Object Warehouse Color Sorting, Click-to-Draw / Click-to-Remove Maze Builder, and dual-viewport Picture-in-Picture (`NOSE_CAM // POV`) camera.
+3. Expose pin-level hardware telemetry in real time: dual-trace HC-SR04 oscilloscope (`TRIG D10 10µs` and `ECHO D11 t µs`), L298N H-Bridge switch matrix ($S_1\text{–}S_4$), 120-sample rolling Blackbox Strip Chart (`Sonar d(cm)`, `Motor Current I(mA)`, `Battery V(volts)`) with `.CSV`/`.JSON` export, and multi-channel Web Audio API mechatronic sound synthesis (continuous DC gearbox hum, reverse beeper, brake chirp, SG90 servo zip, and sonar pings).
 4. Ship a production-ready, pin-verified Arduino UNO sketch (`KinetiX_Autonomous_Pick_Place.ino`) alongside interactive electrical fault simulation (`Disconnect Common GND`, `Swap IN1↔IN2`, `4.8V Brownout`, `Direct GPIO Overcurrent`) on `/hardware` and complete mathematical kinematics derivations on `/how-it-works`.
 
 ---
@@ -39,7 +39,7 @@ Entry-level autonomous robotics systems suffer from two compounding failure mode
 
 ## 5. User Stories
 
-1. *As an evaluator,* I can drag a 3D crate into the rover's path or draw custom maze walls so that I can watch the HC-SR04 detect $d \le 20\text{ cm}$, trigger an active H-Bridge brake, and execute a 4-step orthogonal $90^\circ$ box-bypass maneuver in real time.
+1. *As an evaluator,* I can drag a 3D crate into the rover's path or draw custom maze walls so that I can watch the HC-SR04 detect $d \le 20\text{ cm}$, trigger an active H-Bridge brake + `REVERSE_CLEAR` backup, and recompute a collision-free C-Space A\* trajectory (`#00e676` floor overlay) in real time.
 2. *As a firmware developer,* I can modify `PICK_DIST_CM`, `AVOID_DIST_CM`, `GRIP_CLOSED_DEG`, and `CRUISE_PWM` in the C++ Firmware Patcher and flash the virtual ATmega328P so that I can test edge cases like payload slip when `GRIP_CLOSED_DEG > 52°`.
 3. *As a hardware engineer,* I can inject electrical wiring faults (`Disconnect Common GND`, `Swap IN1↔IN2`, `4.8V Battery Sag`, `Direct GPIO Overcurrent`) so that I can observe floating logic jitter, phase inversion, or MCU brownout resets both on the schematic and in 3D.
 4. *As a systems analyst,* I can enable `A/B GHOST RACE` or `3-OBJECT SORT` and export the 120-sample Blackbox Telemetry Log as `.CSV` or `.JSON` so that I can benchmark autonomous sonar navigation against legacy fixed-path bots.

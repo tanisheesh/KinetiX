@@ -11,7 +11,7 @@ For local development, see [SETUP.md](SETUP.md).
 | Piece | Runs on | Notes |
 |---|---|---|
 | Web app & 3D Digital Twin | Vercel | Next.js 16 static prerendered routes + Edge OG generation |
-| DNS | GoDaddy | `kinetix.tanisheesh.in` → CNAME to `cname.vercel-dns.com` |
+| DNS | GoDaddy | `kinetix.tanisheesh.in` → CNAME to `c5eae3d32ea1a030.vercel-dns-017.com.` |
 
 ---
 

@@ -27,20 +27,20 @@ src/
     how-it-works/page.tsx    [04] Mathematical derivations, truth tables & design rationale
     opengraph-image.tsx      Dynamic 1200x630 brutalist OpenGraph social card
   components/
-    kinetix-stage-3d.tsx     Three.js 60 FPS rigid-body kinematics, OBB collisions & PiP camera
+    kinetix-stage-3d.tsx     Three.js 60 FPS kinematics, C-Space A* pathfinder, OBB collisions & PiP
     navbar.tsx               Sticky brutalist navigation bar + 4-tab mobile strip
     footer.tsx               System metadata and navigation footer
   lib/
     kinetix-data.ts          Single source of truth for FSM states, 12 steps, BOM, and .ino code
-    sound-engine.ts          Web Audio API ultrasonic radar ping, alert & servo sound synth
+    sound-engine.ts          Multi-channel Web Audio synth (DC gearbox hum, reverse beep, servo & sonar)
 ```
 
-### `kinetix-stage-3d.tsx` (3D Physics, OBB Collision & Dual-Viewport Engine)
+### `kinetix-stage-3d.tsx` (3D Physics, C-Space A\* Pathfinder & Dual-Viewport Engine)
 
 Maintains a persistent `THREE.Scene` and single `WebGLRenderer`. Each animation frame (`dt` clamped to `50 ms`):
 1. Casts a 5-ray fan across the $15^\circ$ (`±7.5°`) ultrasonic cone from the front-most contour (`+1.66` with payload, `+1.02` unloaded), separating `obsCm` (obstacle range) from `dCm` (payload range).
-2. Evaluates either electrical fault overrides (`noCommonGnd`, `swapLeftPolarity`, `lowBatteryBrownout`), manual `WASD`/Touch teleop, or the 5-state Deterministic Finite Automaton (`SEARCH`, `PICK`, `CARRY`, `PLACE`, `DONE`) with a 4-step orthogonal $90^\circ$ box-bypass routine (`BRAKE` → `SPIN_90` → `DRIVE_CLEAR` → `SPIN_BACK` → `DRIVE_PAST`).
-3. Enforces solid Oriented Bounding Box (OBB) collision resolution so neither the chassis nor the front gripper can clip through any obstacle.
+2. Evaluates either electrical fault overrides (`noCommonGnd`, `swapLeftPolarity`, `lowBatteryBrownout`), manual `WASD`/Touch teleop, or the 5-state Deterministic Finite Automaton (`SEARCH`, `PICK`, `CARRY`, `PLACE`, `DONE`) backed by a $57\times31$ 2D Occupancy Grid + C-Space A\* Pathfinder (`computeAStarPath` with adaptive radii `[1.28, 1.06, 0.86, 0.68]`, outward-only escape constraints, line-of-sight string-pulling, and a `BRAKE` → `REVERSE_CLEAR` → `SPIN_90` reflex).
+3. Enforces solid Oriented Bounding Box (OBB) collision resolution so the chassis never clips through any container, triggering immediate backup-and-replan recovery on contact.
 4. Renders the main camera across the full canvas, then clears depth on a bottom-right scissor rectangle to render `pipCamera` (`NOSE_CAM // POV`) in the same frame.
 
 ### `playground/page.tsx` (Telemetry, C++ Patcher & Blackbox Recorder)
@@ -56,9 +56,10 @@ Hosts the dedicated 5-stage pipeline bar, the 3D stage panel, the dual-channel H
    │
    ├─► 1. Cast 15° Raycaster Fan ──► Compute obsCm, dCm & echoUs = cm * 58
    │
-   ├─► 2. Evaluate Faults / Teleop / 5-State DFA + Orthogonal 90° Bypass
+   ├─► 2. Evaluate Faults / Teleop / 5-State DFA + 57x31 C-Space A* Pathfinder
    │      ├─► Set L298N Logic (ENA, IN1, IN2, ENB, IN3, IN4)
-   │      ├─► Integrate Pose + Enforce Solid OBB Obstacle Collisions
+   │      ├─► Integrate Pose + Enforce Solid OBB Collisions & Reverse-Clear Reflex
+   │      ├─► Update Continuous Web Audio Synth (DC Gearbox, Reverse Beep, Servo, Sonar)
    │      └─► Interpolate SG90 Closed-Loop Jaw Angle (90° ↔ gripClosedDeg)
    │
    ├─► 3. Dual-Viewport Render (Main Camera + Scissor PiP Nose-Cam)
@@ -95,7 +96,7 @@ Hosts the dedicated 5-stage pipeline bar, the 3D stage panel, the dual-channel H
 
 | Failure Mode | Behaviour |
 |---|---|
-| Acoustic blind-spot contact on 45° / foam obstacle | Solid OBB collider prevents clipping, backs up `0.45` units, and triggers orthogonal 90° bypass |
+| Obstacle contact or newly placed wall ahead | Solid OBB collider prevents clipping, triggers `0.48s` `REVERSE_CLEAR` backup, and recomputes a fresh C-Space A\* route |
 | Weak flashed gripper angle (`GRIP_CLOSED_DEG > 52°`) | Payload slips from jaws after `0.8s` of transport, drops at current world coordinates, and logs `PAYLOAD SLIP FAULT` |
 | Browser window resize / mobile orientation flip | Aspect-aware camera controller adjusts orbit radius (`14.8` portrait vs `10.8` landscape) and updates projection matrices |
 
@@ -104,7 +105,7 @@ Hosts the dedicated 5-stage pipeline bar, the 3D stage panel, the dual-channel H
 ## 7. Deployment
 
 1. Vercel project linked to `tanisheesh/KinetiX` on GitHub — automatic production deployment on every push to `main`.
-2. Custom subdomain `kinetix.tanisheesh.in` routed via GoDaddy CNAME to Vercel DNS (`cname.vercel-dns.com`).
+2. Custom subdomain `kinetix.tanisheesh.in` routed via GoDaddy CNAME to Vercel DNS (`c5eae3d32ea1a030.vercel-dns-017.com.`).
 
 ---
 

@@ -14,15 +14,15 @@
 
 ---
 
-## Decision 2 — Orthogonal 90° Box-Bypass Maneuver + Solid OBB Collision Bounds
+## Decision 2 — 2D Occupancy Grid ($57\times31$) C-Space A\* Pathfinder + Reverse-Clear Reflex
 
-**Context:** When a differential-drive rover carrying an extended front payload (`+1.66` world units ahead of chassis center) steers diagonally around an obstacle crate, its side wheels or gripper tips can clip the obstacle corner.
+**Context:** The RM-01 rover spans roughly $5 \times 3.5$ arena grid squares (`~2.6 × 1.65` world units including its front gripper). Simple single-obstacle reactive turns fail when users construct multi-wall custom mazes or drop crates directly in front of the rover, causing corner clipping or forward/backward stall oscillations.
 
-**Decision:** Measure ultrasonic raycasts from the front-most payload contour, enforce hard Oriented Bounding Box (OBB) collision resolution against all obstacles, and execute a 4-step orthogonal bypass (`BRAKE` → `SPIN_90` → `DRIVE_CLEAR` → `SPIN_BACK` → `DRIVE_PAST`) in both `SEARCH` and `CARRY` states.
+**Decision:** Discretize the playable arena into a $57\times31$ (`0.25`-unit) occupancy grid, inflate obstacles in Configuration Space (`radii = [1.28, 1.06, 0.86, 0.68]`) with a soft proximity cost halo, smooth the resulting 8-directional A\* path via line-of-sight string-pulling, and execute a `0.25s` `BRAKE` + `0.48s` `REVERSE_CLEAR` backup before zero-radius spins whenever an obstacle enters the ultrasonic threshold.
 
-**Reason:** Spinning $90^\circ$ in place ($v = 0$, wheels opposite), driving perpendicular until the chassis + wheel width clears the obstacle's lateral footprint, spinning $90^\circ$ back to the corridor heading, and driving parallel until past the obstacle's back edge guarantees physical clearance without corner clipping.
+**Reason:** Reversing for `0.48s` creates physical turning room for the extended front gripper before pivoting, while outward-only escape constraints (`obsDist > curObsDist`) and string-pulling at `0.95 × radius` guarantee the rover routes cleanly down the center of open corridors without cutting obstacle corners or resetting `pathIdx` mid-turn.
 
-**Tradeoff:** Orthogonal box-bypasses travel a slightly longer path than a curved spline trajectory, which is the exact real-world tradeoff of single-sensor ultrasonic rovers without a 360° LiDAR costmap.
+**Tradeoff:** Computing A\* + string-pulling across 1,767 cells takes `~0.25 ms` whenever an obstacle is added or moved, which is negligible because replanning is event-driven rather than executed on every frame.
 
 ---
 
