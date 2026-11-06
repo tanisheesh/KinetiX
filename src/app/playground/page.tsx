@@ -1,12 +1,22 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import Navbar from "@/components/navbar";
 import Footer from "@/components/footer";
-import KinetiXStage3D, {
+import type {
   StageTelemetry,
   WiringFaultConfig,
 } from "@/components/kinetix-stage-3d";
+
+const KinetiXStage3D = dynamic(() => import("@/components/kinetix-stage-3d"), {
+  ssr: false,
+  loading: () => (
+    <div className="w-full h-full bg-[#0a0a0a] flex items-center justify-center font-mono text-xs text-[#ffb300]">
+      INITIALIZING 3D WEBGL DIGITAL TWIN STAGE...
+    </div>
+  ),
+});
 import {
   ArenaObstacle,
   FSM_STAGES,

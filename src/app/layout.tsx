@@ -104,14 +104,17 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" data-scroll-behavior="smooth" suppressHydrationWarning>
       <head>
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
         />
       </head>
-      <body className="min-h-screen overflow-x-hidden antialiased selection:bg-[#ffb300] selection:text-black">
+      <body
+        suppressHydrationWarning
+        className="min-h-screen overflow-x-hidden antialiased selection:bg-[#ffb300] selection:text-black"
+      >
         {children}
       </body>
     </html>
