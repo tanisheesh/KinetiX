@@ -2027,10 +2027,12 @@ export default function KinetiXStage3D({
       robotRoot.position.set(rp.x, 0, rp.z);
       robotRoot.rotation.y = -rp.heading;
 
-      const lDir = rp.in1 - rp.in2;
-      const rDir = rp.in3 - rp.in4;
-      rp.wheelRotL += lDir * (rp.leftPwm / 255) * dt * 8.5;
-      rp.wheelRotR += rDir * (rp.rightPwm / 255) * dt * 8.5;
+      if ((cur.isRunning || cur.mode === "manual") && cur.cameraMode !== "xray") {
+        const lDir = rp.in1 - rp.in2;
+        const rDir = rp.in3 - rp.in4;
+        rp.wheelRotL += lDir * (rp.leftPwm / 255) * dt * 8.5 * cur.simSpeed;
+        rp.wheelRotR += rDir * (rp.rightPwm / 255) * dt * 8.5 * cur.simSpeed;
+      }
       wheels.forEach(({ mesh, side }) => {
         mesh.rotation.z = side === "L" ? -rp.wheelRotL : -rp.wheelRotR;
       });
