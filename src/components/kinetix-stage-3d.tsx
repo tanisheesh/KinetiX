@@ -35,6 +35,9 @@ export interface StageTelemetry {
   sortedCount: number;
   totalPayloads: number;
   ghostStatus: string;
+  activePayloadWeightKg: number;
+  maxLoadKg: number;
+  isOverloaded: boolean;
 }
 
 export interface WiringFaultConfig {
@@ -53,6 +56,9 @@ interface KinetiXStage3DProps {
   gripClosedDeg: number;
   spinDurationMs: number;
   motorPwm: number;
+  maxLoadKg: number;
+  singlePayloadWeightKg: number;
+  weightDemoEnabled: boolean;
   obstacles: ArenaObstacle[];
   setObstacles: React.Dispatch<React.SetStateAction<ArenaObstacle[]>>;
   cylinderPos: { x: number; z: number };
@@ -89,11 +95,27 @@ interface ProjectedTag {
   y: number;
 }
 
-const MULTI_QUEUE_INIT = [
+interface QueuePayloadItem {
+  id: number;
+  label: string;
+  color: string;
+  weightKg: number;
+  startX: number;
+  startZ: number;
+  curX: number;
+  curZ: number;
+  targetX: number;
+  targetZ: number;
+  done: boolean;
+  rejected: boolean;
+}
+
+const MULTI_QUEUE_INIT: Omit<QueuePayloadItem, "curX" | "curZ" | "rejected">[] = [
   {
     id: 0,
     label: "CYL_AMBER",
     color: "#ffb300",
+    weightKg: 8.0,
     startX: -3.2,
     startZ: -1.2,
     targetX: 5.2,
@@ -102,8 +124,9 @@ const MULTI_QUEUE_INIT = [
   },
   {
     id: 1,
-    label: "CYL_GREEN",
-    color: "#00e676",
+    label: "CYL_HEAVY",
+    color: "#e11d48",
+    weightKg: 20.0,
     startX: -3.2,
     startZ: 0.0,
     targetX: 5.2,
@@ -114,10 +137,36 @@ const MULTI_QUEUE_INIT = [
     id: 2,
     label: "CYL_CYAN",
     color: "#00e5ff",
+    weightKg: 10.0,
     startX: -3.2,
     startZ: 1.2,
     targetX: 5.2,
     targetZ: 1.4,
+    done: false,
+  },
+];
+
+const WEIGHT_DEMO_QUEUE: Omit<QueuePayloadItem, "curX" | "curZ" | "rejected">[] = [
+  {
+    id: 0,
+    label: "HEAVY_20KG",
+    color: "#e11d48",
+    weightKg: 20.0,
+    startX: -3.2,
+    startZ: -1.05,
+    targetX: 5.2,
+    targetZ: -0.9,
+    done: false,
+  },
+  {
+    id: 1,
+    label: "VALID_10KG",
+    color: "#00e676",
+    weightKg: 10.0,
+    startX: -3.2,
+    startZ: 1.05,
+    targetX: 5.2,
+    targetZ: 0.0,
     done: false,
   },
 ];
@@ -132,6 +181,9 @@ export default function KinetiXStage3D({
   gripClosedDeg,
   spinDurationMs,
   motorPwm,
+  maxLoadKg,
+  singlePayloadWeightKg,
+  weightDemoEnabled,
   obstacles,
   setObstacles,
   cylinderPos,
@@ -167,6 +219,9 @@ export default function KinetiXStage3D({
     gripClosedDeg,
     spinDurationMs,
     motorPwm,
+    maxLoadKg,
+    singlePayloadWeightKg,
+    weightDemoEnabled,
     obstacles,
     cylinderPos,
     targetPos,
@@ -192,6 +247,9 @@ export default function KinetiXStage3D({
       gripClosedDeg,
       spinDurationMs,
       motorPwm,
+      maxLoadKg,
+      singlePayloadWeightKg,
+      weightDemoEnabled,
       obstacles,
       cylinderPos,
       targetPos,
@@ -215,6 +273,9 @@ export default function KinetiXStage3D({
     gripClosedDeg,
     spinDurationMs,
     motorPwm,
+    maxLoadKg,
+    singlePayloadWeightKg,
+    weightDemoEnabled,
     obstacles,
     cylinderPos,
     targetPos,
@@ -259,6 +320,9 @@ export default function KinetiXStage3D({
     lastPlanTime: 0,
     pathBlocked: false,
     stateTimer: 0,
+    overloadStraining: false,
+    overloadSoundPlayed: false,
+    singleRejected: false,
     wheelRotL: 0,
     wheelRotR: 0,
     trailPoints: [{ x: -6.4, z: 0.0 }],
@@ -268,6 +332,7 @@ export default function KinetiXStage3D({
       ...p,
       curX: p.startX,
       curZ: p.startZ,
+      rejected: false,
     })),
     ghostX: -6.4,
     ghostZ: -0.45,
@@ -275,19 +340,22 @@ export default function KinetiXStage3D({
     ghostStatus: "FIXED-PATH OPEN LOOP",
   });
 
-  // Reset Robot when resetId or multiSortEnabled changes
+  // Reset Robot when resetId, multiSortEnabled, or weightDemoEnabled changes
   useEffect(() => {
     const rp = physRef.current;
     rp.x = -6.4;
     rp.z = 0.0;
     rp.multiIdx = 0;
-    rp.multiPayloads = MULTI_QUEUE_INIT.map((p) => ({
+    const templateQueue = weightDemoEnabled ? WEIGHT_DEMO_QUEUE : MULTI_QUEUE_INIT;
+    rp.multiPayloads = templateQueue.map((p) => ({
       ...p,
       curX: p.startX,
       curZ: p.startZ,
       done: false,
+      rejected: false,
     }));
-    const firstPick = multiSortEnabled
+    const isQueueMode = multiSortEnabled || weightDemoEnabled;
+    const firstPick = isQueueMode
       ? { x: rp.multiPayloads[0].curX, z: rp.multiPayloads[0].curZ }
       : cylinderPos;
     rp.heading = Math.atan2(firstPick.z - rp.z, firstPick.x - rp.x);
@@ -298,6 +366,9 @@ export default function KinetiXStage3D({
     rp.gripAngle = 90;
     rp.targetGripAngle = 90;
     rp.hasCylinder = false;
+    rp.overloadStraining = false;
+    rp.overloadSoundPlayed = false;
+    rp.singleRejected = false;
     rp.leftPwm = 0;
     rp.rightPwm = 0;
     rp.in1 = 0;
@@ -317,7 +388,7 @@ export default function KinetiXStage3D({
     rp.ghostZ = -0.45;
     rp.ghostCrashed = false;
     rp.ghostStatus = "FIXED-PATH OPEN LOOP";
-  }, [resetId, multiSortEnabled]);
+  }, [resetId, multiSortEnabled, weightDemoEnabled]);
 
   useEffect(() => {
     const container = mountRef.current;
@@ -495,9 +566,32 @@ export default function KinetiXStage3D({
       multiSortGroup.add(pad);
 
       const cyl = createCylinderMesh(item.color);
+      if (item.weightKg >= 18) cyl.scale.set(1.16, 1.12, 1.16);
       cyl.position.set(item.startX, 0, item.startZ);
       multiSortGroup.add(cyl);
       multiCylMeshes.push(cyl);
+    });
+
+    // Weight Limit Demo Group (20 kg Heavy Crimson Drum vs 10 kg Valid Cylinder)
+    const weightDemoGroup = new THREE.Group();
+    weightDemoGroup.visible = false;
+    scene.add(weightDemoGroup);
+
+    const weightDemoMeshes: THREE.Group[] = [];
+    WEIGHT_DEMO_QUEUE.forEach((item) => {
+      const startRing = new THREE.Mesh(
+        new THREE.RingGeometry(0.52, 0.64, 32),
+        new THREE.MeshBasicMaterial({ color: item.color, side: THREE.DoubleSide })
+      );
+      startRing.rotation.x = -Math.PI / 2;
+      startRing.position.set(item.startX, 0.015, item.startZ);
+      weightDemoGroup.add(startRing);
+
+      const cyl = createCylinderMesh(item.color);
+      if (item.weightKg >= 18) cyl.scale.set(1.18, 1.14, 1.18);
+      cyl.position.set(item.startX, 0, item.startZ);
+      weightDemoGroup.add(cyl);
+      weightDemoMeshes.push(cyl);
     });
 
     // Ghost Fixed-Path Rover
@@ -1351,19 +1445,27 @@ export default function KinetiXStage3D({
 
       syncObstacles(cur.obstacles);
 
+      const isQueueMode = cur.multiSortEnabled || cur.weightDemoEnabled;
       const activeMultiItem =
-        rp.multiPayloads[Math.min(rp.multiIdx, rp.multiPayloads.length - 1)];
-      const activePickPos = cur.multiSortEnabled
+        rp.multiPayloads[Math.min(rp.multiIdx, rp.multiPayloads.length - 1)] ||
+        rp.multiPayloads[0];
+      const activePickPos = isQueueMode
         ? { x: activeMultiItem.curX, z: activeMultiItem.curZ }
         : cur.cylinderPos;
-      const activeTargetPos = cur.multiSortEnabled
+      const activeTargetPos = isQueueMode
         ? { x: activeMultiItem.targetX, z: activeMultiItem.targetZ }
         : cur.targetPos;
+      const activePayloadWeightKg = isQueueMode
+        ? activeMultiItem.weightKg
+        : cur.singlePayloadWeightKg;
 
-      pickPad.visible = !cur.multiSortEnabled;
+      pickPad.visible = !isQueueMode;
       targetPad.visible = !cur.multiSortEnabled;
-      cylinderGroup.visible = !cur.multiSortEnabled;
-      multiSortGroup.visible = cur.multiSortEnabled;
+      cylinderGroup.visible = !isQueueMode;
+      multiSortGroup.visible = cur.multiSortEnabled && !cur.weightDemoEnabled;
+      weightDemoGroup.visible = cur.weightDemoEnabled;
+      const sScale = cur.singlePayloadWeightKg >= 18 ? 1.18 : 1.0;
+      cylinderGroup.scale.set(sScale, sScale, sScale);
 
       pickPad.position.set(cur.cylinderPos.x, 0.012, cur.cylinderPos.z);
       targetPad.position.set(cur.targetPos.x, 0.012, cur.targetPos.z);
@@ -1472,7 +1574,7 @@ export default function KinetiXStage3D({
         // Build effective obstacle list including any unheld cylinders on the floor so A* never routes the chassis over a cylinder!
         const getEffectiveObstacles = (excludeTargetCyl: boolean): ArenaObstacle[] => {
           const list = [...cur.obstacles];
-          if (cur.multiSortEnabled) {
+          if (isQueueMode) {
             rp.multiPayloads.forEach((p, idx) => {
               if (idx === rp.multiIdx && rp.hasCylinder) return;
               if (idx === rp.multiIdx && excludeTargetCyl) return;
@@ -1685,15 +1787,15 @@ export default function KinetiXStage3D({
             rp.activeCodeLine = 3;
             rp.subStageText =
               dGoalCm < 18
-                ? `CREEPING TO PAYLOAD // d = ${rp.distanceCm.toFixed(1)} cm (TARGET ≤ ${cur.pickDistCm} cm)`
+                ? `CREEPING TO PAYLOAD (${activePayloadWeightKg.toFixed(1)} kg) // d = ${rp.distanceCm.toFixed(1)} cm`
                 : `NAVIGATING A* CORRIDOR TO PICK ZONE // SONAR d = ${rp.distanceCm.toFixed(1)} cm`;
           } else {
             rp.stepNum = rp.plannedPath.length > 1 ? 8 : 9;
-            rp.activeCodeLine = rp.plannedPath.length > 1 ? 8 : 9;
+            rp.activeCodeLine = rp.plannedPath.length > 1 ? 10 : 11;
             rp.subStageText =
               rp.plannedPath.length > 1
-                ? `BYPASSING WALLS VIA A* WAYPOINT ${rp.pathIdx + 1}/${rp.plannedPath.length} // SONAR d = ${rp.distanceCm.toFixed(1)} cm`
-                : `TRANSPORTING TO TARGET // SONAR CLEAR (${rp.distanceCm.toFixed(1)} cm)`;
+                ? `CARRYING ${activePayloadWeightKg.toFixed(1)} kg VIA A* WAYPOINT ${rp.pathIdx + 1}/${rp.plannedPath.length} // SONAR d = ${rp.distanceCm.toFixed(1)} cm`
+                : `TRANSPORTING ${activePayloadWeightKg.toFixed(1)} kg PAYLOAD TO TARGET // SONAR CLEAR (${rp.distanceCm.toFixed(1)} cm)`;
           }
         };
 
@@ -1726,9 +1828,11 @@ export default function KinetiXStage3D({
             rp.state = "PICK";
             rp.stateTimer = 0;
             rp.avoidState = "NONE";
+            rp.overloadStraining = false;
+            rp.overloadSoundPlayed = false;
             rp.stepNum = 5;
             rp.activeCodeLine = 6;
-            rp.subStageText = `PAYLOAD AT ≤ ${cur.pickDistCm} cm // CLOSING SG90 JAWS TO ${cur.gripClosedDeg}°`;
+            rp.subStageText = `CLAMPING PAYLOAD (${activePayloadWeightKg.toFixed(1)} kg) // SENSING LOAD TORQUE...`;
             rp.in1 = 0;
             rp.in2 = 0;
             rp.in3 = 0;
@@ -1786,25 +1890,91 @@ export default function KinetiXStage3D({
             navigateAStarToGoal(standoffGoal, true);
           }
         } else if (rp.state === "PICK") {
-          rp.targetGripAngle = cur.gripClosedDeg;
           rp.stateTimer += dt * cur.simSpeed;
-          rp.in1 = 0;
-          rp.in2 = 0;
-          rp.in3 = 0;
-          rp.in4 = 0;
-          rp.leftPwm = 0;
-          rp.rightPwm = 0;
-          if (rp.stateTimer > 0.45) {
-            rp.hasCylinder = true;
-            rp.stepNum = 6;
-          }
-          if (rp.stateTimer > 1.05) {
-            rp.state = "CARRY";
-            rp.stateTimer = 0;
-            rp.avoidState = "NONE";
-            rp.lastPlanSig = "";
-            rp.stepNum = 7;
-            rp.activeCodeLine = 9;
+          const isOverweight = activePayloadWeightKg > cur.maxLoadKg;
+
+          if (!isOverweight) {
+            // VALID WEIGHT (<= MAX_LOAD_KG): Close jaws, verify torque, transition to CARRY
+            rp.targetGripAngle = cur.gripClosedDeg;
+            rp.overloadStraining = false;
+            rp.in1 = 0;
+            rp.in2 = 0;
+            rp.in3 = 0;
+            rp.in4 = 0;
+            rp.leftPwm = 0;
+            rp.rightPwm = 0;
+            if (rp.stateTimer > 0.45) {
+              rp.hasCylinder = true;
+              rp.stepNum = 6;
+              rp.activeCodeLine = 8;
+              rp.subStageText = `WEIGHT CHECK PASSED (${activePayloadWeightKg.toFixed(1)} kg ≤ ${cur.maxLoadKg.toFixed(1)} kg MAX) // LOCKING PAYLOAD`;
+            }
+            if (rp.stateTimer > 1.05) {
+              rp.state = "CARRY";
+              rp.stateTimer = 0;
+              rp.avoidState = "NONE";
+              rp.lastPlanSig = "";
+              rp.stepNum = 7;
+              rp.activeCodeLine = 11;
+            }
+          } else {
+            // OVERWEIGHT PAYLOAD (> MAX_LOAD_KG): Strain & Shudder -> Reject & Release -> Reverse Backup -> Next Object!
+            if (rp.stateTimer < 0.45) {
+              rp.targetGripAngle = cur.gripClosedDeg;
+              rp.activeCodeLine = 6;
+              rp.subStageText = `CLAMPING PAYLOAD (${activePayloadWeightKg.toFixed(1)} kg) // MEASURING STALL CURRENT...`;
+            } else if (rp.stateTimer < 1.35) {
+              rp.targetGripAngle = cur.gripClosedDeg;
+              rp.overloadStraining = true;
+              rp.activeCodeLine = 7;
+              if (!rp.overloadSoundPlayed) {
+                rp.overloadSoundPlayed = true;
+                soundEngine.playOverloadReject();
+              }
+              rp.subStageText = `CANNOT LIFT PAYLOAD! WEIGHT ${activePayloadWeightKg.toFixed(1)} kg EXCEEDS MAX LIMIT (${cur.maxLoadKg.toFixed(1)} kg) // SERVO STALL!`;
+            } else if (rp.stateTimer < 2.0) {
+              rp.overloadStraining = false;
+              rp.targetGripAngle = 90;
+              rp.hasCylinder = false;
+              rp.activeCodeLine = 7;
+              if (isQueueMode) {
+                activeMultiItem.rejected = true;
+              } else {
+                rp.singleRejected = true;
+              }
+              // Back up clear of the rejected heavy payload
+              rp.x -= Math.cos(rp.heading) * (linSpd * 0.65) * dt;
+              rp.z -= Math.sin(rp.heading) * (linSpd * 0.65) * dt;
+              rp.in1 = 0;
+              rp.in2 = 1;
+              rp.in3 = 0;
+              rp.in4 = 1;
+              rp.leftPwm = 130;
+              rp.rightPwm = 130;
+              rp.subStageText = `REJECTED ${activePayloadWeightKg.toFixed(1)} kg OVERWEIGHT OBJECT // RELEASING JAWS (90°) & BACKING UP`;
+            } else {
+              rp.overloadStraining = false;
+              rp.in1 = 0;
+              rp.in2 = 0;
+              rp.in3 = 0;
+              rp.in4 = 0;
+              rp.leftPwm = 0;
+              rp.rightPwm = 0;
+              if (isQueueMode && rp.multiIdx < rp.multiPayloads.length - 1) {
+                rp.multiIdx += 1;
+                rp.state = "SEARCH";
+                rp.lastPlanSig = "";
+                rp.stepNum = 2;
+                rp.activeCodeLine = 3;
+                const nextObj = rp.multiPayloads[rp.multiIdx];
+                rp.subStageText = `SKIPPED ${activePayloadWeightKg.toFixed(1)} kg OVERLOAD // REROUTING TO ${nextObj.label} (${nextObj.weightKg.toFixed(1)} kg)`;
+              } else {
+                rp.state = "DONE";
+                rp.stepNum = 12;
+                rp.activeCodeLine = 15;
+                rp.subStageText = `MISSION HALTED // CANNOT CARRY ${activePayloadWeightKg.toFixed(1)} kg (EXCEEDS ${cur.maxLoadKg.toFixed(1)} kg MAX CAPACITY)`;
+              }
+            }
           }
         } else if (rp.state === "CARRY") {
           rp.targetGripAngle = cur.gripClosedDeg;
@@ -1815,7 +1985,7 @@ export default function KinetiXStage3D({
             rp.hasCylinder = false;
             const dropX = Number((rp.x + Math.cos(rp.heading) * 1.44).toFixed(2));
             const dropZ = Number((rp.z + Math.sin(rp.heading) * 1.44).toFixed(2));
-            if (cur.multiSortEnabled) {
+            if (isQueueMode) {
               activeMultiItem.curX = dropX;
               activeMultiItem.curZ = dropZ;
             } else {
@@ -1847,7 +2017,7 @@ export default function KinetiXStage3D({
             rp.stateTimer = 0;
             rp.avoidState = "NONE";
             rp.stepNum = 10;
-            rp.activeCodeLine = 12;
+            rp.activeCodeLine = 14;
             rp.subStageText = "TARGET DROP ZONE REACHED // OPENING SG90 GRIPPER TO 90°";
             rp.in1 = 0;
             rp.in2 = 0;
@@ -1870,7 +2040,7 @@ export default function KinetiXStage3D({
             rp.rightPwm = 0;
             if (rp.hasCylinder && rp.stateTimer > 0.25) {
               rp.hasCylinder = false;
-              if (cur.multiSortEnabled) {
+              if (isQueueMode) {
                 activeMultiItem.curX = activeMultiItem.targetX;
                 activeMultiItem.curZ = activeMultiItem.targetZ;
                 activeMultiItem.done = true;
@@ -1893,18 +2063,19 @@ export default function KinetiXStage3D({
             rp.leftPwm = 115;
             rp.rightPwm = 115;
           } else {
-            if (cur.multiSortEnabled && rp.multiIdx < rp.multiPayloads.length - 1) {
+            if (isQueueMode && rp.multiIdx < rp.multiPayloads.length - 1) {
               rp.multiIdx += 1;
               rp.state = "SEARCH";
+              rp.lastPlanSig = "";
               rp.stepNum = 2;
               rp.activeCodeLine = 3;
-              rp.subStageText = `SORTED ${rp.multiIdx}/3 // RETURNING FOR NEXT PAYLOAD`;
+              rp.subStageText = `DELIVERED PAYLOAD // RETURNING FOR NEXT OBJECT`;
             } else {
               rp.state = "DONE";
               rp.stepNum = 12;
-              rp.activeCodeLine = 13;
+              rp.activeCodeLine = 15;
               rp.subStageText =
-                "MISSION COMPLETE // PAYLOAD DELIVERED AUTONOMOUSLY TO TARGET";
+                "MISSION COMPLETE // VALID PAYLOAD(S) DELIVERED AUTONOMOUSLY TO TARGET";
               rp.in1 = 0;
               rp.in2 = 0;
               rp.in3 = 0;
@@ -1967,7 +2138,7 @@ export default function KinetiXStage3D({
         });
 
         // Also prevent the car's chassis/wheels from EVER rolling over any unheld cylinder on the floor!
-        const floorCylinders = cur.multiSortEnabled
+        const floorCylinders = isQueueMode
           ? rp.multiPayloads
               .filter((_, idx) => !(idx === rp.multiIdx && rp.hasCylinder))
               .map((p) => ({ x: p.curX, z: p.curZ }))
@@ -2024,7 +2195,10 @@ export default function KinetiXStage3D({
           cur.wiringFaults.lowBatteryBrownout,
       });
 
-      robotRoot.position.set(rp.x, 0, rp.z);
+      // Add physical chassis shudder when straining against an overweight payload (> MAX_LOAD_KG)
+      const shudderX = rp.overloadStraining ? Math.sin(now * 0.09) * 0.04 : 0;
+      const shudderZ = rp.overloadStraining ? Math.cos(now * 0.11) * 0.035 : 0;
+      robotRoot.position.set(rp.x + shudderX, 0, rp.z + shudderZ);
       robotRoot.rotation.y = -rp.heading;
 
       if ((cur.isRunning || cur.mode === "manual") && cur.cameraMode !== "xray") {
@@ -2037,16 +2211,32 @@ export default function KinetiXStage3D({
         mesh.rotation.z = side === "L" ? -rp.wheelRotL : -rp.wheelRotR;
       });
 
-      if (cur.multiSortEnabled) {
+      if (cur.weightDemoEnabled) {
         rp.multiPayloads.forEach((item, idx) => {
+          const mesh = weightDemoMeshes[idx];
+          if (!mesh) return;
           if (idx === rp.multiIdx && rp.hasCylinder) {
-            multiCylMeshes[idx].position.set(
+            mesh.position.set(
               rp.x + Math.cos(rp.heading) * 1.44,
               0.04,
               rp.z + Math.sin(rp.heading) * 1.44
             );
           } else {
-            multiCylMeshes[idx].position.set(item.curX, 0, item.curZ);
+            mesh.position.set(item.curX, 0, item.curZ);
+          }
+        });
+      } else if (cur.multiSortEnabled) {
+        rp.multiPayloads.forEach((item, idx) => {
+          const mesh = multiCylMeshes[idx];
+          if (!mesh) return;
+          if (idx === rp.multiIdx && rp.hasCylinder) {
+            mesh.position.set(
+              rp.x + Math.cos(rp.heading) * 1.44,
+              0.04,
+              rp.z + Math.sin(rp.heading) * 1.44
+            );
+          } else {
+            mesh.position.set(item.curX, 0, item.curZ);
           }
         });
       } else {
@@ -2218,14 +2408,16 @@ export default function KinetiXStage3D({
         lastUi = now;
         const isSpinning = rp.avoidState === "SPIN_90";
         const isBraking = rp.in1 === 1 && rp.in2 === 1;
-        const baseCurrent =
-          rp.leftPwm === 0
-            ? isBraking
-              ? 640
-              : 35
-            : isSpinning
-            ? 790
-            : Math.round((rp.leftPwm / 255) * 420) + (rp.hasCylinder ? 95 : 0);
+        const weightExtraMa = rp.hasCylinder ? Math.round(activePayloadWeightKg * 11) : 0;
+        const baseCurrent = rp.overloadStraining
+          ? 985
+          : rp.leftPwm === 0
+          ? isBraking
+            ? 640
+            : 35
+          : isSpinning
+          ? 790 + weightExtraMa
+          : Math.round((rp.leftPwm / 255) * 420) + weightExtraMa;
         const jitterMa = Math.round(Math.sin(now * 0.02) * 14);
         const motorCurrentMa = cur.wiringFaults.lowBatteryBrownout
           ? 920
@@ -2234,9 +2426,9 @@ export default function KinetiXStage3D({
           ? 4.8
           : Number((7.4 - (motorCurrentMa / 1000) * 0.48).toFixed(2));
 
-        const sortedCount = cur.multiSortEnabled
+        const sortedCount = isQueueMode
           ? rp.multiPayloads.filter((p) => p.done).length
-          : rp.state === "DONE"
+          : rp.state === "DONE" && !rp.singleRejected
           ? 1
           : 0;
 
@@ -2262,8 +2454,11 @@ export default function KinetiXStage3D({
           motorCurrentMa,
           batteryVoltage,
           sortedCount,
-          totalPayloads: cur.multiSortEnabled ? 3 : 1,
+          totalPayloads: cur.weightDemoEnabled ? 2 : cur.multiSortEnabled ? 3 : 1,
           ghostStatus: rp.ghostStatus,
+          activePayloadWeightKg,
+          maxLoadKg: cur.maxLoadKg,
+          isOverloaded: rp.overloadStraining || rp.singleRejected,
         });
 
         const w = container.clientWidth;
@@ -2316,16 +2511,59 @@ export default function KinetiXStage3D({
             });
           }
 
-          if (!rp.hasCylinder && rp.state !== "DONE") {
+          if (isQueueMode) {
+            rp.multiPayloads.forEach((p, idx) => {
+              if (idx === rp.multiIdx && rp.hasCylinder) return;
+              const cPt = project(new THREE.Vector3(p.curX, 0.92, p.curZ));
+              if (cPt) {
+                const isOver = p.weightKg > cur.maxLoadKg;
+                tags.push({
+                  id: `t-q-${idx}`,
+                  code: p.rejected
+                    ? "REJECTED"
+                    : p.done
+                    ? "DELIVERED"
+                    : `${p.weightKg.toFixed(0)} KG`,
+                  title: p.label,
+                  sub: p.rejected
+                    ? `${p.weightKg}kg > ${cur.maxLoadKg}kg MAX!`
+                    : `Limit: ≤${cur.maxLoadKg}kg`,
+                  border: p.rejected
+                    ? "border-[#ff2a2a]"
+                    : isOver
+                    ? "border-[#ff5500]"
+                    : "border-[#00e676]",
+                  accent: p.rejected
+                    ? "text-[#ff2a2a]"
+                    : isOver
+                    ? "text-[#ff5500]"
+                    : "text-[#00e676]",
+                  x: cPt.x,
+                  y: cPt.y,
+                });
+              }
+            });
+          } else if (!rp.hasCylinder) {
             const cPt = project(new THREE.Vector3(activePickPos.x, 0.9, activePickPos.z));
             if (cPt) {
+              const isOver = cur.singlePayloadWeightKg > cur.maxLoadKg;
               tags.push({
                 id: "t-cyl",
-                code: cur.multiSortEnabled ? `PAYLOAD_${rp.multiIdx + 1}/3` : "ZONE_02",
-                title: "PICK OBJECT",
-                sub: `Grip ≤ ${cur.pickDistCm}cm`,
-                border: "border-[#ffb300]",
-                accent: "text-[#ffb300]",
+                code: rp.singleRejected
+                  ? "REJECTED"
+                  : `${cur.singlePayloadWeightKg} KG`,
+                title: rp.singleRejected ? "OVERWEIGHT!" : "PICK OBJECT",
+                sub: rp.singleRejected
+                  ? `${cur.singlePayloadWeightKg}kg > ${cur.maxLoadKg}kg MAX`
+                  : `Max Limit: ${cur.maxLoadKg}kg`,
+                border:
+                  rp.singleRejected || isOver
+                    ? "border-[#ff2a2a]"
+                    : "border-[#ffb300]",
+                accent:
+                  rp.singleRejected || isOver
+                    ? "text-[#ff2a2a]"
+                    : "text-[#ffb300]",
                 x: cPt.x,
                 y: cPt.y,
               });

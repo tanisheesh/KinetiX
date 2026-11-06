@@ -362,17 +362,19 @@ export const HARDWARE_MODULES: HardwareModule[] = [
 export const STATE_MACHINE_CODE = [
   { line: 1, code: "d = readDistanceCm();          // HC-SR04: d = echo_us / 58.0" },
   { line: 2, code: "if (state == SEARCH) {" },
-  { line: 3, code: "  if (d > 5.0) forward();      // Approach cylinder in Pick Zone" },
+  { line: 3, code: "  if (d > 5.0) forward();      // Approach payload in Pick Zone" },
   { line: 4, code: "  else { stopMotors(); state = PICK; }" },
   { line: 5, code: "} else if (state == PICK) {" },
-  { line: 6, code: "  gripper.write(30); delay(1000); state = CARRY;" },
-  { line: 7, code: "} else if (state == CARRY) {" },
-  { line: 8, code: "  if (d <= 20.0) { stopMotors(); turn(); } // Avoid obstacle" },
-  { line: 9, code: "  else if (!atTarget()) forward();" },
-  { line: 10, code: "  else { stopMotors(); state = PLACE; }" },
-  { line: 11, code: "} else if (state == PLACE) {" },
-  { line: 12, code: "  gripper.write(90); delay(1000); state = DONE;" },
-  { line: 13, code: "} else stopMotors();           // Autonomous cycle complete" },
+  { line: 6, code: "  gripper.write(30); kg = readLoadSensorKg();" },
+  { line: 7, code: "  if (kg > MAX_LOAD_KG) { gripper.write(90); rejectOverload(); }" },
+  { line: 8, code: "  else { delay(600); state = CARRY; }" },
+  { line: 9, code: "} else if (state == CARRY) {" },
+  { line: 10, code: "  if (d <= 20.0) { stopMotors(); turn(); } // Avoid obstacle" },
+  { line: 11, code: "  else if (!atTarget()) forward();" },
+  { line: 12, code: "  else { stopMotors(); state = PLACE; }" },
+  { line: 13, code: "} else if (state == PLACE) {" },
+  { line: 14, code: "  gripper.write(90); delay(1000); state = DONE;" },
+  { line: 15, code: "} else stopMotors();           // Autonomous cycle complete" },
 ];
 
 export const FULL_ARDUINO_SKETCH = `// ============================================================================

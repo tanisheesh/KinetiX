@@ -51,6 +51,9 @@ export default function PlaygroundPage() {
   const [gripClosedDeg, setGripClosedDeg] = useState(30);
   const [spinDurationMs, setSpinDurationMs] = useState(450);
   const [motorPwm, setMotorPwm] = useState(170);
+  const [maxLoadKg, setMaxLoadKg] = useState(15);
+  const [singlePayloadWeightKg, setSinglePayloadWeightKg] = useState(10);
+  const [weightDemoEnabled, setWeightDemoEnabled] = useState(false);
 
   // Draft values inside the C++ Firmware Patcher
   const [codeTab, setCodeTab] = useState<"trace" | "patch">("trace");
@@ -59,6 +62,7 @@ export default function PlaygroundPage() {
   const [draftGripDeg, setDraftGripDeg] = useState(30);
   const [draftSpinMs, setDraftSpinMs] = useState(450);
   const [draftPwm, setDraftPwm] = useState(170);
+  const [draftMaxLoadKg, setDraftMaxLoadKg] = useState(15);
   const [flashBanner, setFlashBanner] = useState<string | null>(null);
 
   const [scenarioId, setScenarioId] = useState("standard");
@@ -134,6 +138,9 @@ export default function PlaygroundPage() {
     sortedCount: 0,
     totalPayloads: 1,
     ghostStatus: "FIXED-PATH OPEN LOOP",
+    activePayloadWeightKg: 10,
+    maxLoadKg: 15,
+    isOverloaded: false,
   });
 
   // Blackbox history buffer for Upgrade #5 Strip Chart & CSV/JSON Export
@@ -288,9 +295,10 @@ export default function PlaygroundPage() {
     setGripClosedDeg(draftGripDeg);
     setSpinDurationMs(draftSpinMs);
     setMotorPwm(draftPwm);
+    setMaxLoadKg(draftMaxLoadKg);
     soundEngine.playFlashSuccess();
     setFlashBanner(
-      `AVRDUDE // FLASHED 3,412 BYTES TO ATMEGA328P (PICK≤${draftPickCm}cm, AVOID≤${draftAvoidCm}cm, GRIP=${draftGripDeg}°, SPIN=${draftSpinMs}ms)`
+      `AVRDUDE // FLASHED 3,412 BYTES TO ATMEGA328P (MAX_LOAD=${draftMaxLoadKg}kg, PICK≤${draftPickCm}cm, AVOID≤${draftAvoidCm}cm, GRIP=${draftGripDeg}°)`
     );
     setTimeout(() => setFlashBanner(null), 4000);
   };
@@ -331,6 +339,8 @@ export default function PlaygroundPage() {
     const found = PRESET_SCENARIOS.find((s) => s.id === id);
     if (!found) return;
     setScenarioId(id);
+    setMultiSortEnabled(false);
+    setWeightDemoEnabled(false);
     setObstacles(found.obstacles.map((o) => ({ ...o })));
     setCylinderPos({ ...found.cylinderPos });
     setTargetPos({ ...found.targetPos });
@@ -454,14 +464,27 @@ export default function PlaygroundPage() {
             <span>
               AUTONOMOUS STAGE PIPELINE // 5-STATE DETERMINISTIC FINITE AUTOMATON
             </span>
-            <div className="flex items-center gap-3">
-              {multiSortEnabled && (
+            <div className="flex flex-wrap items-center gap-3">
+              <span
+                className={`px-2 py-0.5 border font-bold ${
+                  telemetry.activePayloadWeightKg > telemetry.maxLoadKg
+                    ? "border-[#ff2a2a] text-[#ff2a2a] bg-[#ff2a2a]/10"
+                    : "border-[#ffb300] text-[#ffb300] bg-[#ffb300]/10"
+                }`}
+              >
+                LOAD: {telemetry.activePayloadWeightKg.toFixed(0)}kg / MAX{" "}
+                {telemetry.maxLoadKg.toFixed(0)}kg{" "}
+                {telemetry.activePayloadWeightKg > telemetry.maxLoadKg
+                  ? "[OVERWEIGHT!]"
+                  : "[OK ✓]"}
+              </span>
+              {(multiSortEnabled || weightDemoEnabled) && (
                 <span className="text-[#ffb300] font-bold">
-                  PAYLOADS SORTED: {telemetry.sortedCount}/{telemetry.totalPayloads}
+                  DELIVERED: {telemetry.sortedCount}/{telemetry.totalPayloads}
                 </span>
               )}
               <span className="text-[#00e676] font-bold">
-                ● ACTIVE STEP {String(activeStepObj.step).padStart(2, "0")}/12 · PHASE{" "}
+                ● STEP {String(activeStepObj.step).padStart(2, "0")}/12 · PHASE{" "}
                 {activeStepObj.phase}
               </span>
             </div>
@@ -646,7 +669,7 @@ export default function PlaygroundPage() {
                     key={sc.id}
                     onClick={() => handleSelectScenario(sc.id)}
                     className={`px-2 py-1 border text-[10px] cursor-pointer ${
-                      scenarioId === sc.id && !multiSortEnabled
+                      scenarioId === sc.id && !multiSortEnabled && !weightDemoEnabled
                         ? "border-[#00e676] text-[#00e676] bg-[#111a14] font-bold"
                         : "border-[#222220] text-[#88857e] hover:text-[#f2efe9]"
                     }`}
@@ -655,7 +678,30 @@ export default function PlaygroundPage() {
                   </button>
                 ))}
                 <button
-                  onClick={() => setMultiSortEnabled((m) => !m)}
+                  onClick={() => {
+                    const next = !weightDemoEnabled;
+                    setWeightDemoEnabled(next);
+                    if (next) setMultiSortEnabled(false);
+                    setIsRunning(true);
+                    setResetId((r) => r + 1);
+                  }}
+                  className={`px-2.5 py-1 border text-[10px] cursor-pointer ${
+                    weightDemoEnabled
+                      ? "bg-[#ffb300] text-[#080808] border-[#ffb300] font-bold"
+                      : "border-[#ffb300] text-[#ffb300] bg-[#151515]"
+                  }`}
+                  title="Spawns a 20 kg Heavy Object and a 10 kg Valid Object (Max Limit: 15 kg)"
+                >
+                  ⚖️ 20KG vs 10KG DEMO
+                </button>
+                <button
+                  onClick={() => {
+                    const next = !multiSortEnabled;
+                    setMultiSortEnabled(next);
+                    if (next) setWeightDemoEnabled(false);
+                    setIsRunning(true);
+                    setResetId((r) => r + 1);
+                  }}
                   className={`px-2.5 py-1 border text-[10px] cursor-pointer ${
                     multiSortEnabled
                       ? "bg-[#ffb300] text-[#080808] border-[#ffb300] font-bold"
@@ -692,6 +738,9 @@ export default function PlaygroundPage() {
                 gripClosedDeg={gripClosedDeg}
                 spinDurationMs={spinDurationMs}
                 motorPwm={motorPwm}
+                maxLoadKg={maxLoadKg}
+                singlePayloadWeightKg={singlePayloadWeightKg}
+                weightDemoEnabled={weightDemoEnabled}
                 obstacles={obstacles}
                 setObstacles={setObstacles}
                 cylinderPos={cylinderPos}
@@ -807,6 +856,30 @@ export default function PlaygroundPage() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[#88857e] text-[10px] mr-0.5">PAYLOAD:</span>
+                  {[10, 20].map((wt) => (
+                    <button
+                      key={wt}
+                      onClick={() => {
+                        setWeightDemoEnabled(false);
+                        setMultiSortEnabled(false);
+                        setSinglePayloadWeightKg(wt);
+                        setIsRunning(true);
+                        setResetId((r) => r + 1);
+                      }}
+                      className={`px-2 py-1 border cursor-pointer ${
+                        !weightDemoEnabled &&
+                        !multiSortEnabled &&
+                        singlePayloadWeightKg === wt
+                          ? wt > maxLoadKg
+                            ? "bg-[#ff2a2a] text-[#f2efe9] border-[#ff2a2a] font-bold"
+                            : "bg-[#00e676] text-[#080808] border-[#00e676] font-bold"
+                          : "border-[#3a3834] text-[#88857e]"
+                      }`}
+                    >
+                      {wt}KG {wt > maxLoadKg ? "(OVER)" : "(OK)"}
+                    </button>
+                  ))}
                   <button
                     onClick={() => setYoloEnabled((v) => !v)}
                     className={`px-2 py-1 border cursor-pointer ${
@@ -1298,6 +1371,21 @@ export default function PlaygroundPage() {
                             value={draftSpinMs}
                             onChange={(e) => setDraftSpinMs(Number(e.target.value))}
                             className="w-full bg-transparent text-[#f2efe9] font-bold focus:outline-none mt-0.5"
+                          />
+                        </label>
+
+                        <label className="border border-[#ffb300]/50 bg-[#111111] p-2 block col-span-2">
+                          <span className="text-[9px] text-[#ffb300] font-bold block">
+                            MAX_LOAD_KG CAPACITY (5–30 kg · Default: 15 kg)
+                          </span>
+                          <input
+                            type="number"
+                            min={5}
+                            max={30}
+                            step={1}
+                            value={draftMaxLoadKg}
+                            onChange={(e) => setDraftMaxLoadKg(Number(e.target.value))}
+                            className="w-full bg-transparent text-[#ffb300] font-bold focus:outline-none mt-0.5"
                           />
                         </label>
                       </div>

@@ -202,6 +202,44 @@ class KinetiXSoundEngine {
     });
   }
 
+  // Strained Servo Stall Groan + Triple Overload Rejection Alarm (when payload weight > maxLoadKg)
+  public playOverloadReject() {
+    if (!this.enabled) return;
+    const ctx = this.ensureContext();
+    if (!ctx) return;
+    const out = this.getOutputNode(ctx);
+
+    const now = ctx.currentTime;
+
+    // 1. Strained Servo Motor Stall Groan (0.0s - 0.35s)
+    const stallOsc = ctx.createOscillator();
+    const stallGain = ctx.createGain();
+    stallOsc.type = "sawtooth";
+    stallOsc.frequency.setValueAtTime(195, now);
+    stallOsc.frequency.linearRampToValueAtTime(115, now + 0.32);
+    stallGain.gain.setValueAtTime(0.38, now);
+    stallGain.gain.exponentialRampToValueAtTime(0.002, now + 0.35);
+    stallOsc.connect(stallGain);
+    stallGain.connect(out);
+    stallOsc.start(now);
+    stallOsc.stop(now + 0.36);
+
+    // 2. Descending Overload Rejection Alarm Beeps (0.36s - 0.85s)
+    [740, 523.25, 370].forEach((freq, idx) => {
+      const t0 = now + 0.36 + idx * 0.14;
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = "square";
+      osc.frequency.setValueAtTime(freq, t0);
+      g.gain.setValueAtTime(0.35, t0);
+      g.gain.exponentialRampToValueAtTime(0.002, t0 + 0.12);
+      osc.connect(g);
+      g.connect(out);
+      osc.start(t0);
+      osc.stop(t0 + 0.13);
+    });
+  }
+
   // Loud, Crisp 340ms SG90 Micro-Servo Gear Train Whir + Mechanical Clamp Thud
   private playServoActuation(closing: boolean) {
     if (!this.enabled) return;
