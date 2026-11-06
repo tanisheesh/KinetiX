@@ -987,6 +987,7 @@ export default function KinetiXStage3D({
       if (
         !physRef.current.hasCylinder &&
         !propsRef.current.multiSortEnabled &&
+        !propsRef.current.weightDemoEnabled &&
         e.button === 0
       ) {
         const cylHits = raycaster.intersectObjects(cylinderGroup.children, true);
@@ -1466,6 +1467,15 @@ export default function KinetiXStage3D({
       weightDemoGroup.visible = cur.weightDemoEnabled;
       const sScale = cur.singlePayloadWeightKg >= 18 ? 1.18 : 1.0;
       cylinderGroup.scale.set(sScale, sScale, sScale);
+      const outerCylMesh = cylinderGroup.children[0] as THREE.Mesh<
+        THREE.CylinderGeometry,
+        THREE.MeshStandardMaterial
+      >;
+      if (outerCylMesh && outerCylMesh.material) {
+        outerCylMesh.material.color.set(
+          cur.singlePayloadWeightKg > cur.maxLoadKg ? "#e11d48" : "#ffb300"
+        );
+      }
 
       pickPad.position.set(cur.cylinderPos.x, 0.012, cur.cylinderPos.z);
       targetPad.position.set(cur.targetPos.x, 0.012, cur.targetPos.z);
@@ -1538,13 +1548,27 @@ export default function KinetiXStage3D({
         const jawX = rp.x + Math.cos(rp.heading) * 1.35;
         const jawZ = rp.z + Math.sin(rp.heading) * 1.35;
         const dCyl = Math.hypot(activePickPos.x - jawX, activePickPos.z - jawZ);
-        if (k.gripClosed && !rp.hasCylinder && dCyl < 0.6) {
-          rp.hasCylinder = true;
-          rp.state = "CARRY";
-        } else if (!k.gripClosed && rp.hasCylinder) {
-          rp.hasCylinder = false;
-          setCylinderPos({ x: Number(jawX.toFixed(2)), z: Number(jawZ.toFixed(2)) });
-          rp.state = "SEARCH";
+        if (k.gripClosed && !rp.hasCylinder && dCyl < 0.65) {
+          if (activePayloadWeightKg > cur.maxLoadKg) {
+            rp.overloadStraining = true;
+            if (!rp.overloadSoundPlayed) {
+              rp.overloadSoundPlayed = true;
+              soundEngine.playOverloadReject();
+            }
+            rp.subStageText = `TELEOP OVERLOAD FAULT // CANNOT LIFT ${activePayloadWeightKg.toFixed(1)} kg (EXCEEDS ${cur.maxLoadKg.toFixed(1)} kg MAX)!`;
+          } else {
+            rp.overloadStraining = false;
+            rp.hasCylinder = true;
+            rp.state = "CARRY";
+          }
+        } else if (!k.gripClosed) {
+          rp.overloadStraining = false;
+          rp.overloadSoundPlayed = false;
+          if (rp.hasCylinder) {
+            rp.hasCylinder = false;
+            setCylinderPos({ x: Number(jawX.toFixed(2)), z: Number(jawZ.toFixed(2)) });
+            rp.state = "SEARCH";
+          }
         }
       } else if (cur.isRunning && cur.cameraMode !== "xray") {
         // Ghost Fixed-Path Bot
@@ -2690,6 +2714,7 @@ export default function KinetiXStage3D({
 
     return () => {
       cancelAnimationFrame(animId);
+      soundEngine.silenceMotor();
       window.removeEventListener("resize", onResize);
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);

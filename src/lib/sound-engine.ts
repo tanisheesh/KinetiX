@@ -159,6 +159,12 @@ class KinetiXSoundEngine {
     return this.enabled;
   }
 
+  public silenceMotor() {
+    if (this.ctx && this.motorMasterGain) {
+      this.motorMasterGain.gain.setTargetAtTime(0.0001, this.ctx.currentTime, 0.03);
+    }
+  }
+
   public playBootChime() {
     if (!this.enabled) return;
     const ctx = this.ensureContext();
