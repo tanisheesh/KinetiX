@@ -18,11 +18,13 @@ export interface SoundTelemetryInput {
 
 class KinetiXSoundEngine {
   private ctx: AudioContext | null = null;
+  private compressor: DynamicsCompressorNode | null = null;
   private enabled = false;
 
-  // Continuous DC Gearmotor + Gearbox nodes
-  private motorOscMain: OscillatorNode | null = null;
-  private motorOscSub: OscillatorNode | null = null;
+  // Continuous 3-Layer DC Gearmotor + Spur Gearbox + PWM Whine Synth
+  private motorOscArmature: OscillatorNode | null = null;
+  private motorOscGearbox: OscillatorNode | null = null;
+  private motorOscPwm: OscillatorNode | null = null;
   private motorLfo: OscillatorNode | null = null;
   private motorLfoGain: GainNode | null = null;
   private motorFilter: BiquadFilterNode | null = null;
@@ -44,7 +46,7 @@ class KinetiXSoundEngine {
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       if (AudioCtx) {
         this.ctx = new AudioCtx();
-        this.initContinuousMotorSynth(this.ctx);
+        this.initAudioGraph(this.ctx);
       }
     }
     if (this.ctx && this.ctx.state === "suspended") {
@@ -53,49 +55,90 @@ class KinetiXSoundEngine {
     return this.ctx;
   }
 
-  private initContinuousMotorSynth(ctx: AudioContext) {
-    // Master gain for continuous 1:48 TT Geared DC Motor hum
+  private getOutputNode(ctx: AudioContext): AudioNode {
+    return this.compressor || ctx.destination;
+  }
+
+  private initAudioGraph(ctx: AudioContext) {
+    // Master Dynamics Compressor + Makeup Gain so laptop speakers sound loud, punchy & clear
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.setValueAtTime(-18, ctx.currentTime);
+    comp.knee.setValueAtTime(10, ctx.currentTime);
+    comp.ratio.setValueAtTime(4, ctx.currentTime);
+    comp.attack.setValueAtTime(0.003, ctx.currentTime);
+    comp.release.setValueAtTime(0.15, ctx.currentTime);
+
+    const makeup = ctx.createGain();
+    makeup.gain.setValueAtTime(1.45, ctx.currentTime);
+
+    comp.connect(makeup);
+    makeup.connect(ctx.destination);
+    this.compressor = comp;
+
+    // Continuous 1:48 Geared DC Motor Synth tuned for Laptop Speaker Sweet Spot (140 Hz - 1800 Hz)
     const masterGain = ctx.createGain();
     masterGain.gain.setValueAtTime(0.0001, ctx.currentTime);
 
-    // Low-pass filter to shape raw waveforms into warm mechanical gearbox hum
     const filter = ctx.createBiquadFilter();
     filter.type = "lowpass";
-    filter.frequency.setValueAtTime(240, ctx.currentTime);
-    filter.Q.setValueAtTime(2.8, ctx.currentTime);
+    filter.frequency.setValueAtTime(1450, ctx.currentTime);
+    filter.Q.setValueAtTime(3.2, ctx.currentTime);
 
-    // Primary armature/commutator sawtooth oscillator
-    const oscMain = ctx.createOscillator();
-    oscMain.type = "sawtooth";
-    oscMain.frequency.setValueAtTime(75, ctx.currentTime);
+    // Layer 1: Motor Armature Buzz (Sawtooth 140-280 Hz)
+    const oscArmature = ctx.createOscillator();
+    oscArmature.type = "sawtooth";
+    oscArmature.frequency.setValueAtTime(150, ctx.currentTime);
 
-    // Sub-harmonic 1:48 spur gear-mesh triangle oscillator
-    const oscSub = ctx.createOscillator();
-    oscSub.type = "triangle";
-    oscSub.frequency.setValueAtTime(37.5, ctx.currentTime);
+    const armGain = ctx.createGain();
+    armGain.gain.setValueAtTime(0.55, ctx.currentTime);
 
-    // LFO for realistic gear-tooth vibrato / wheel cadence
+    // Layer 2: 1:48 Spur Gearbox Mesh Whine (Square 280-560 Hz - super audible on laptop speakers!)
+    const oscGearbox = ctx.createOscillator();
+    oscGearbox.type = "square";
+    oscGearbox.frequency.setValueAtTime(300, ctx.currentTime);
+
+    const gearGain = ctx.createGain();
+    gearGain.gain.setValueAtTime(0.32, ctx.currentTime);
+
+    // Layer 3: L298N PWM Carrier Harmonic (Triangle 580-1100 Hz)
+    const oscPwm = ctx.createOscillator();
+    oscPwm.type = "triangle";
+    oscPwm.frequency.setValueAtTime(620, ctx.currentTime);
+
+    const pwmGain = ctx.createGain();
+    pwmGain.gain.setValueAtTime(0.22, ctx.currentTime);
+
+    // Mechanical Gear-Tooth Cadence LFO (22 Hz -> 42 Hz)
     const lfo = ctx.createOscillator();
     lfo.type = "sine";
-    lfo.frequency.setValueAtTime(16, ctx.currentTime);
+    lfo.frequency.setValueAtTime(24, ctx.currentTime);
 
     const lfoGain = ctx.createGain();
-    lfoGain.gain.setValueAtTime(4.5, ctx.currentTime);
+    lfoGain.gain.setValueAtTime(14, ctx.currentTime);
 
     lfo.connect(lfoGain);
-    lfoGain.connect(oscMain.frequency);
+    lfoGain.connect(oscArmature.frequency);
+    lfoGain.connect(oscGearbox.frequency);
 
-    oscMain.connect(filter);
-    oscSub.connect(filter);
+    oscArmature.connect(armGain);
+    oscGearbox.connect(gearGain);
+    oscPwm.connect(pwmGain);
+
+    armGain.connect(filter);
+    gearGain.connect(filter);
+    pwmGain.connect(filter);
+
     filter.connect(masterGain);
-    masterGain.connect(ctx.destination);
+    masterGain.connect(comp);
 
-    oscMain.start();
-    oscSub.start();
+    oscArmature.start();
+    oscGearbox.start();
+    oscPwm.start();
     lfo.start();
 
-    this.motorOscMain = oscMain;
-    this.motorOscSub = oscSub;
+    this.motorOscArmature = oscArmature;
+    this.motorOscGearbox = oscGearbox;
+    this.motorOscPwm = oscPwm;
     this.motorLfo = lfo;
     this.motorLfoGain = lfoGain;
     this.motorFilter = filter;
@@ -120,52 +163,55 @@ class KinetiXSoundEngine {
     if (!this.enabled) return;
     const ctx = this.ensureContext();
     if (!ctx) return;
+    const out = this.getOutputNode(ctx);
 
     const now = ctx.currentTime;
-    const notes = [440, 554.37, 659.25, 880];
+    const notes = [523.25, 659.25, 783.99, 1046.5];
     notes.forEach((freq, idx) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
-      osc.type = "triangle";
-      osc.frequency.setValueAtTime(freq, now + idx * 0.055);
-      gain.gain.setValueAtTime(0.045, now + idx * 0.055);
-      gain.gain.exponentialRampToValueAtTime(0.0008, now + idx * 0.055 + 0.16);
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(freq, now + idx * 0.06);
+      gain.gain.setValueAtTime(0.28, now + idx * 0.06);
+      gain.gain.exponentialRampToValueAtTime(0.002, now + idx * 0.06 + 0.19);
       osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(now + idx * 0.055);
-      osc.stop(now + idx * 0.055 + 0.17);
+      gain.connect(out);
+      osc.start(now + idx * 0.06);
+      osc.stop(now + idx * 0.06 + 0.2);
     });
   }
 
   public playFlashSuccess() {
     const ctx = this.ensureContext();
     if (!ctx) return;
+    const out = this.getOutputNode(ctx);
+
     const now = ctx.currentTime;
     const notes = [587.33, 880, 1174.66];
     notes.forEach((freq, idx) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
-      osc.type = "triangle";
-      osc.frequency.setValueAtTime(freq, now + idx * 0.065);
-      gain.gain.setValueAtTime(0.055, now + idx * 0.065);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.065 + 0.22);
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(freq, now + idx * 0.07);
+      gain.gain.setValueAtTime(0.32, now + idx * 0.07);
+      gain.gain.exponentialRampToValueAtTime(0.002, now + idx * 0.07 + 0.24);
       osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(now + idx * 0.065);
-      osc.stop(now + idx * 0.065 + 0.23);
+      gain.connect(out);
+      osc.start(now + idx * 0.07);
+      osc.stop(now + idx * 0.07 + 0.25);
     });
   }
 
-  // Realistic 320ms SG90 Micro-Servo Gear Train Whir + Mechanical Clamp Thud
+  // Loud, Crisp 340ms SG90 Micro-Servo Gear Train Whir + Mechanical Clamp Thud
   private playServoActuation(closing: boolean) {
     if (!this.enabled) return;
     const ctx = this.ensureContext();
     if (!ctx) return;
+    const out = this.getOutputNode(ctx);
 
     const now = ctx.currentTime;
-    const duration = 0.32;
+    const duration = 0.34;
 
-    // High-speed nylon gear train whir
     const carrier = ctx.createOscillator();
     const mod = ctx.createOscillator();
     const modGain = ctx.createGain();
@@ -173,56 +219,56 @@ class KinetiXSoundEngine {
     const gain = ctx.createGain();
 
     carrier.type = "sawtooth";
-    const startFreq = closing ? 360 : 540;
-    const endFreq = closing ? 580 : 340;
+    const startFreq = closing ? 480 : 860;
+    const endFreq = closing ? 880 : 460;
     carrier.frequency.setValueAtTime(startFreq, now);
     carrier.frequency.linearRampToValueAtTime(endFreq, now + duration);
 
-    // Gear tooth modulation
     mod.type = "square";
-    mod.frequency.setValueAtTime(48, now);
-    modGain.gain.setValueAtTime(35, now);
+    mod.frequency.setValueAtTime(64, now);
+    modGain.gain.setValueAtTime(75, now);
 
     filter.type = "bandpass";
-    filter.frequency.setValueAtTime(850, now);
-    filter.Q.setValueAtTime(1.8, now);
+    filter.frequency.setValueAtTime(1100, now);
+    filter.Q.setValueAtTime(1.4, now);
 
-    gain.gain.setValueAtTime(0.001, now);
-    gain.gain.linearRampToValueAtTime(0.048, now + 0.03);
-    gain.gain.setValueAtTime(0.045, now + duration - 0.05);
-    gain.gain.exponentialRampToValueAtTime(0.0008, now + duration);
+    gain.gain.setValueAtTime(0.01, now);
+    gain.gain.linearRampToValueAtTime(0.38, now + 0.03);
+    gain.gain.setValueAtTime(0.36, now + duration - 0.05);
+    gain.gain.exponentialRampToValueAtTime(0.002, now + duration);
 
     mod.connect(modGain);
     modGain.connect(carrier.frequency);
     carrier.connect(filter);
     filter.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(out);
 
     carrier.start(now);
     mod.start(now);
     carrier.stop(now + duration + 0.01);
     mod.stop(now + duration + 0.01);
 
-    // Mechanical jaw clamp thud at the end of travel
+    // Mechanical jaw clamp click/thud at end of travel
     const thud = ctx.createOscillator();
     const thudGain = ctx.createGain();
-    thud.type = "sine";
-    thud.frequency.setValueAtTime(closing ? 135 : 110, now + duration - 0.03);
-    thud.frequency.exponentialRampToValueAtTime(42, now + duration + 0.07);
-    thudGain.gain.setValueAtTime(0.07, now + duration - 0.03);
-    thudGain.gain.exponentialRampToValueAtTime(0.001, now + duration + 0.075);
+    thud.type = "triangle";
+    thud.frequency.setValueAtTime(closing ? 240 : 190, now + duration - 0.03);
+    thud.frequency.exponentialRampToValueAtTime(68, now + duration + 0.09);
+    thudGain.gain.setValueAtTime(0.45, now + duration - 0.03);
+    thudGain.gain.exponentialRampToValueAtTime(0.002, now + duration + 0.095);
 
     thud.connect(thudGain);
-    thudGain.connect(ctx.destination);
+    thudGain.connect(out);
     thud.start(now + duration - 0.03);
-    thud.stop(now + duration + 0.08);
+    thud.stop(now + duration + 0.1);
   }
 
-  // H-Bridge Active Dynamic Brake Thud + Deceleration Chirp
+  // Loud H-Bridge Active Dynamic Brake Screech / Deceleration Chirp
   private playBrakeScreech() {
     if (!this.enabled) return;
     const ctx = this.ensureContext();
     if (!ctx) return;
+    const out = this.getOutputNode(ctx);
 
     const now = ctx.currentTime;
     const osc = ctx.createOscillator();
@@ -230,20 +276,20 @@ class KinetiXSoundEngine {
     const gain = ctx.createGain();
 
     osc.type = "sawtooth";
-    osc.frequency.setValueAtTime(210, now);
-    osc.frequency.exponentialRampToValueAtTime(48, now + 0.16);
+    osc.frequency.setValueAtTime(420, now);
+    osc.frequency.exponentialRampToValueAtTime(95, now + 0.2);
 
     filter.type = "lowpass";
-    filter.frequency.setValueAtTime(480, now);
+    filter.frequency.setValueAtTime(1200, now);
 
-    gain.gain.setValueAtTime(0.06, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.17);
+    gain.gain.setValueAtTime(0.36, now);
+    gain.gain.exponentialRampToValueAtTime(0.002, now + 0.21);
 
     osc.connect(filter);
     filter.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(out);
     osc.start(now);
-    osc.stop(now + 0.18);
+    osc.stop(now + 0.22);
   }
 
   // State Transition Telemetry Chimes
@@ -251,35 +297,34 @@ class KinetiXSoundEngine {
     if (!this.enabled) return;
     const ctx = this.ensureContext();
     if (!ctx) return;
+    const out = this.getOutputNode(ctx);
 
     const now = ctx.currentTime;
     if (newState === "CARRY") {
-      // Payload locked confirmation (2 ascending tones)
-      [523.25, 783.99].forEach((f, i) => {
-        const osc = ctx.createOscillator();
-        const g = ctx.createGain();
-        osc.type = "sine";
-        osc.frequency.setValueAtTime(f, now + i * 0.08);
-        g.gain.setValueAtTime(0.04, now + i * 0.08);
-        g.gain.exponentialRampToValueAtTime(0.001, now + i * 0.08 + 0.15);
-        osc.connect(g);
-        g.connect(ctx.destination);
-        osc.start(now + i * 0.08);
-        osc.stop(now + i * 0.08 + 0.16);
-      });
-    } else if (newState === "DONE") {
-      // Mission complete 4-note chord fanfare
-      [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => {
+      [587.33, 880].forEach((f, i) => {
         const osc = ctx.createOscillator();
         const g = ctx.createGain();
         osc.type = "triangle";
-        osc.frequency.setValueAtTime(f, now + i * 0.075);
-        g.gain.setValueAtTime(0.055, now + i * 0.075);
-        g.gain.exponentialRampToValueAtTime(0.0008, now + i * 0.075 + 0.32);
+        osc.frequency.setValueAtTime(f, now + i * 0.08);
+        g.gain.setValueAtTime(0.3, now + i * 0.08);
+        g.gain.exponentialRampToValueAtTime(0.002, now + i * 0.08 + 0.18);
         osc.connect(g);
-        g.connect(ctx.destination);
-        osc.start(now + i * 0.075);
-        osc.stop(now + i * 0.075 + 0.34);
+        g.connect(out);
+        osc.start(now + i * 0.08);
+        osc.stop(now + i * 0.08 + 0.19);
+      });
+    } else if (newState === "DONE") {
+      [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => {
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = "sawtooth";
+        osc.frequency.setValueAtTime(f, now + i * 0.08);
+        g.gain.setValueAtTime(0.32, now + i * 0.08);
+        g.gain.exponentialRampToValueAtTime(0.002, now + i * 0.08 + 0.34);
+        osc.connect(g);
+        g.connect(out);
+        osc.start(now + i * 0.08);
+        osc.stop(now + i * 0.08 + 0.35);
       });
     }
   }
@@ -288,14 +333,16 @@ class KinetiXSoundEngine {
     if (!this.enabled) return;
     const ctx = this.ensureContext();
     if (!ctx) return;
+    const out = this.getOutputNode(ctx);
 
     const now = ctx.currentTime;
     const nowMs = performance.now();
 
-    // 1. Update Continuous 1:48 Geared DC Motor Hum & Pitch
+    // 1. Update Continuous 1:48 Geared DC Motor + Gearbox Whine (Loud & Clear on Laptop Speakers!)
     if (
-      this.motorOscMain &&
-      this.motorOscSub &&
+      this.motorOscArmature &&
+      this.motorOscGearbox &&
+      this.motorOscPwm &&
       this.motorLfo &&
       this.motorFilter &&
       this.motorMasterGain
@@ -309,46 +356,46 @@ class KinetiXSoundEngine {
 
       if (isDriving) {
         const pwmNorm = avgPwm / 255;
-        // Base motor frequency scales with PWM RPM, shifting higher during differential spin
-        const targetMainFreq = isSpinning
-          ? 98 + pwmNorm * 65
+        // Tuned to 145 Hz - 290 Hz fundamental + 290 Hz - 580 Hz gearbox harmonic + 580 Hz - 1160 Hz PWM whine
+        const baseFreq = isSpinning
+          ? 185 + pwmNorm * 95
           : isReversing
-          ? 68 + pwmNorm * 42
-          : 62 + pwmNorm * 58;
+          ? 135 + pwmNorm * 65
+          : 145 + pwmNorm * 85;
 
-        this.motorOscMain.frequency.setTargetAtTime(targetMainFreq, now, 0.05);
-        this.motorOscSub.frequency.setTargetAtTime(targetMainFreq * 0.5, now, 0.05);
-        this.motorLfo.frequency.setTargetAtTime(10 + pwmNorm * 16, now, 0.05);
+        this.motorOscArmature.frequency.setTargetAtTime(baseFreq, now, 0.04);
+        this.motorOscGearbox.frequency.setTargetAtTime(baseFreq * 2.0, now, 0.04);
+        this.motorOscPwm.frequency.setTargetAtTime(baseFreq * 4.0, now, 0.04);
+        this.motorLfo.frequency.setTargetAtTime(18 + pwmNorm * 22, now, 0.04);
         this.motorFilter.frequency.setTargetAtTime(
-          isSpinning ? 360 : 210 + pwmNorm * 130,
+          isSpinning ? 2100 : 1250 + pwmNorm * 650,
           now,
-          0.05
+          0.04
         );
         this.motorMasterGain.gain.setTargetAtTime(
-          isSpinning ? 0.042 : 0.03 + pwmNorm * 0.015,
+          isSpinning ? 0.34 : 0.24 + pwmNorm * 0.08,
           now,
           0.04
         );
       } else {
-        // Spool down motor smoothly when stopped or paused
-        this.motorOscMain.frequency.setTargetAtTime(42, now, 0.08);
-        this.motorOscSub.frequency.setTargetAtTime(21, now, 0.08);
+        this.motorOscArmature.frequency.setTargetAtTime(90, now, 0.08);
+        this.motorOscGearbox.frequency.setTargetAtTime(180, now, 0.08);
         this.motorMasterGain.gain.setTargetAtTime(0.0001, now, 0.05);
       }
 
-      // 2. Industrial Reverse Backup Beeper when reversing (Step 11 or REVERSE_CLEAR)
-      if (isDriving && isReversing && nowMs - this.lastReverseBeepMs > 340) {
+      // 2. Loud Industrial Reverse Backup Beeper when reversing
+      if (isDriving && isReversing && nowMs - this.lastReverseBeepMs > 330) {
         this.lastReverseBeepMs = nowMs;
         const beep = ctx.createOscillator();
         const bGain = ctx.createGain();
-        beep.type = "sine";
-        beep.frequency.setValueAtTime(1080, now);
-        bGain.gain.setValueAtTime(0.038, now);
-        bGain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+        beep.type = "square";
+        beep.frequency.setValueAtTime(1120, now);
+        bGain.gain.setValueAtTime(0.28, now);
+        bGain.gain.exponentialRampToValueAtTime(0.002, now + 0.13);
         beep.connect(bGain);
-        bGain.connect(ctx.destination);
+        bGain.connect(out);
         beep.start(now);
-        beep.stop(now + 0.13);
+        beep.stop(now + 0.14);
       }
     }
 
@@ -372,27 +419,27 @@ class KinetiXSoundEngine {
     }
 
     // 6. Hardware Wiring Fault Buzzer
-    if (input.hasFault && nowMs - this.lastFaultBuzzMs > 450) {
+    if (input.hasFault && nowMs - this.lastFaultBuzzMs > 420) {
       this.lastFaultBuzzMs = nowMs;
       const buzz = ctx.createOscillator();
       const bGain = ctx.createGain();
       buzz.type = "sawtooth";
-      buzz.frequency.setValueAtTime(155, now);
-      buzz.frequency.setValueAtTime(130, now + 0.08);
-      bGain.gain.setValueAtTime(0.04, now);
-      bGain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+      buzz.frequency.setValueAtTime(220, now);
+      buzz.frequency.setValueAtTime(165, now + 0.09);
+      bGain.gain.setValueAtTime(0.34, now);
+      bGain.gain.exponentialRampToValueAtTime(0.002, now + 0.2);
       buzz.connect(bGain);
-      bGain.connect(ctx.destination);
+      bGain.connect(out);
       buzz.start(now);
-      buzz.stop(now + 0.19);
+      buzz.stop(now + 0.21);
     }
 
-    // 7. Submarine-Style 40kHz Ultrasonic Sonar Ping + Proximity Lock
+    // 7. Submarine-Style Ultrasonic Sonar Ping + Tactical Proximity Alert
     if (input.isRunning && input.state !== "DONE" && !input.hasFault) {
       const pingInterval =
         input.distanceCm <= input.thresholdCm
-          ? 170
-          : Math.min(680, 190 + input.distanceCm * 4.2);
+          ? 165
+          : Math.min(640, 185 + input.distanceCm * 4.0);
 
       if (nowMs - this.lastPingMs >= pingInterval) {
         this.lastPingMs = nowMs;
@@ -400,27 +447,25 @@ class KinetiXSoundEngine {
         const gain = ctx.createGain();
 
         if (input.distanceCm <= input.thresholdCm) {
-          // Two-tone tactical obstacle proximity lock
-          osc.type = "triangle";
-          osc.frequency.setValueAtTime(1320, now);
-          osc.frequency.setValueAtTime(1760, now + 0.045);
-          gain.gain.setValueAtTime(0.045, now);
-          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+          osc.type = "sawtooth";
+          osc.frequency.setValueAtTime(1380, now);
+          osc.frequency.setValueAtTime(1880, now + 0.045);
+          gain.gain.setValueAtTime(0.32, now);
+          gain.gain.exponentialRampToValueAtTime(0.002, now + 0.11);
           osc.connect(gain);
-          gain.connect(ctx.destination);
+          gain.connect(out);
           osc.start(now);
-          osc.stop(now + 0.11);
+          osc.stop(now + 0.12);
         } else {
-          // Warm resonant acoustic sonar ping + echo tail
-          osc.type = "sine";
-          osc.frequency.setValueAtTime(1680, now);
-          osc.frequency.exponentialRampToValueAtTime(1420, now + 0.055);
-          gain.gain.setValueAtTime(0.024, now);
-          gain.gain.exponentialRampToValueAtTime(0.0008, now + 0.065);
+          osc.type = "triangle";
+          osc.frequency.setValueAtTime(1760, now);
+          osc.frequency.exponentialRampToValueAtTime(1440, now + 0.065);
+          gain.gain.setValueAtTime(0.22, now);
+          gain.gain.exponentialRampToValueAtTime(0.002, now + 0.075);
           osc.connect(gain);
-          gain.connect(ctx.destination);
+          gain.connect(out);
           osc.start(now);
-          osc.stop(now + 0.07);
+          osc.stop(now + 0.08);
         }
       }
     }

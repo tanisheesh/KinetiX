@@ -70,7 +70,21 @@ export default function PlaygroundPage() {
   const [ghostRaceEnabled, setGhostRaceEnabled] = useState(false);
   const [multiSortEnabled, setMultiSortEnabled] = useState(false);
   const [wallDrawMode, setWallDrawMode] = useState(false);
-  const [audioEnabled, setAudioEnabled] = useState(false);
+  const [audioEnabled, setAudioEnabled] = useState(true);
+
+  useEffect(() => {
+    const unlock = () => {
+      if (audioEnabled && !soundEngine.isEnabled()) {
+        soundEngine.setEnabled(true);
+      }
+    };
+    window.addEventListener("pointerdown", unlock, { once: true });
+    window.addEventListener("keydown", unlock, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
+  }, [audioEnabled]);
 
   const [wiringFaults, setWiringFaults] = useState<WiringFaultConfig>({
     noCommonGnd: false,
