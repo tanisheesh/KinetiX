@@ -1135,9 +1135,11 @@ export default function KinetiXStage3D({
         const dz = wz - o.z;
         const lx = dx * cosA - dz * sinA;
         const lz = dx * sinA + dz * cosA;
-        const ox = Math.max(0, Math.abs(lx) - o.w * 0.5);
-        const oz = Math.max(0, Math.abs(lz) - o.d * 0.5);
-        const d = Math.hypot(ox, oz);
+        const dxBox = Math.abs(lx) - o.w * 0.5;
+        const dzBox = Math.abs(lz) - o.d * 0.5;
+        const outsideDist = Math.hypot(Math.max(0, dxBox), Math.max(0, dzBox));
+        const insideDist = Math.min(0, Math.max(dxBox, dzBox));
+        const d = outsideDist + insideDist;
         if (d < minD) minD = d;
       }
       return minD;
@@ -1190,8 +1192,8 @@ export default function KinetiXStage3D({
       const gRow = toRow(goalZ);
       const totalCells = GRID_COLS * GRID_ROWS;
 
-      // Try full car+gripper clearance radius first (1.28), then adaptive fallbacks for narrow maze gaps
-      const radii = [1.28, 1.06, 0.86, 0.68];
+      // Try full car+gripper clearance radius first (1.35), then adaptive fallbacks that still exceed car half-width (0.96)
+      const radii = [1.35, 1.15, 0.96];
       const dirs = [
         [1, 0, 1.0],
         [-1, 0, 1.0],
@@ -1467,11 +1469,83 @@ export default function KinetiXStage3D({
           rp.brakeReflexCooldown = Math.max(0, rp.brakeReflexCooldown - dt * cur.simSpeed);
         }
 
+        // Build effective obstacle list including any unheld cylinders on the floor so A* never routes the chassis over a cylinder!
+        const getEffectiveObstacles = (excludeTargetCyl: boolean): ArenaObstacle[] => {
+          const list = [...cur.obstacles];
+          if (cur.multiSortEnabled) {
+            rp.multiPayloads.forEach((p, idx) => {
+              if (idx === rp.multiIdx && rp.hasCylinder) return;
+              if (idx === rp.multiIdx && excludeTargetCyl) return;
+              list.push({
+                id: `cyl-obs-${idx}`,
+                x: p.curX,
+                z: p.curZ,
+                w: 0.48,
+                d: 0.48,
+                h: 0.62,
+                type: "crate",
+                label: p.label,
+                angle: 0,
+              });
+            });
+          } else if (!rp.hasCylinder && !excludeTargetCyl) {
+            list.push({
+              id: "cyl-obs-main",
+              x: cur.cylinderPos.x,
+              z: cur.cylinderPos.z,
+              w: 0.48,
+              d: 0.48,
+              h: 0.62,
+              type: "crate",
+              label: "PAYLOAD",
+              angle: 0,
+            });
+          }
+          return list;
+        };
+
+        // Compute a Standoff Pre-Grasp Point 1.50 units outside the target cylinder so the car parks in front of it, NEVER on top of it!
+        const computeStandoffPoint = (cylPos: { x: number; z: number }) => {
+          const standDist = 1.5;
+          const baseAng = Math.atan2(rp.z - cylPos.z, rp.x - cylPos.x);
+          const candidateOffsets = [
+            0,
+            0.4,
+            -0.4,
+            0.8,
+            -0.8,
+            Math.PI * 0.5,
+            -Math.PI * 0.5,
+            Math.PI,
+          ];
+          const obsWithOtherCyls = getEffectiveObstacles(true);
+
+          for (const off of candidateOffsets) {
+            const ang = baseAng + off;
+            const sx = cylPos.x + Math.cos(ang) * standDist;
+            const sz = cylPos.z + Math.sin(ang) * standDist;
+            if (
+              sx > -7.0 &&
+              sx < 6.5 &&
+              Math.abs(sz) < 3.2 &&
+              minSignedDistToObstacles(sx, sz, obsWithOtherCyls) > 0.95
+            ) {
+              return { x: sx, z: sz };
+            }
+          }
+          return {
+            x: Math.max(-6.8, cylPos.x - standDist),
+            z: cylPos.z,
+          };
+        };
+
         // Dynamic A* Grid Path Planner + Differential-Drive Waypoint Follower
         const navigateAStarToGoal = (
           goalPos: { x: number; z: number },
           isSearchPhase: boolean
         ) => {
+          const effectiveObs = getEffectiveObstacles(false);
+
           // Step 1: Handle Active Brake & Reverse-Clear Reflex first
           if (rp.avoidState === "BRAKE") {
             rp.in1 = 1;
@@ -1511,12 +1585,12 @@ export default function KinetiXStage3D({
 
           // Step 2: Compute A* path ONLY when obstacles/goal change (never on a fast timer that resets pathIdx!)
           const sig = `${rp.state}:${goalPos.x.toFixed(1)},${goalPos.z.toFixed(1)}:${JSON.stringify(
-            cur.obstacles.map((o) => [o.x, o.z, o.w, o.d, o.angle])
+            effectiveObs.map((o) => [o.x, o.z, o.w, o.d, o.angle])
           )}`;
           if (sig !== rp.lastPlanSig || rp.plannedPath.length === 0) {
             rp.lastPlanSig = sig;
             rp.lastPlanTime = now;
-            const res = computeAStarPath(rp.x, rp.z, goalPos.x, goalPos.z, cur.obstacles);
+            const res = computeAStarPath(rp.x, rp.z, goalPos.x, goalPos.z, effectiveObs);
             rp.plannedPath = res.waypoints;
             rp.pathBlocked = res.blocked;
             rp.pathIdx = 0;
@@ -1626,16 +1700,29 @@ export default function KinetiXStage3D({
         // --- KINETIX 5-STATE DFA ---
         if (rp.state === "SEARCH") {
           rp.targetGripAngle = 90;
-          const jawX = rp.x + Math.cos(rp.heading) * 1.35;
-          const jawZ = rp.z + Math.sin(rp.heading) * 1.35;
+          const jawX = rp.x + Math.cos(rp.heading) * 1.38;
+          const jawZ = rp.z + Math.sin(rp.heading) * 1.38;
           const dWorld = Math.hypot(activePickPos.x - jawX, activePickPos.z - jawZ);
+          const distCenterToCyl = Math.hypot(
+            activePickPos.x - rp.x,
+            activePickPos.z - rp.z
+          );
+          const angleToCyl = Math.atan2(
+            activePickPos.z - rp.z,
+            activePickPos.x - rp.x
+          );
+          const angleErrToCyl = wrap(angleToCyl - rp.heading);
+
           const dCm = dWorld * WORLD_TO_CM;
           rp.distanceCm = Math.min(rp.distanceCm, Math.max(2.5, dCm));
           rp.echoUs = Math.round(rp.distanceCm * 58);
 
-          if (dCm > cur.pickDistCm) {
-            navigateAStarToGoal(activePickPos, true);
-          } else {
+          // 1. If gripper jaws are aligned and within pick threshold (and chassis is outside cylinder), grab it!
+          if (
+            (dCm <= cur.pickDistCm ||
+              (distCenterToCyl <= 1.46 && Math.abs(angleErrToCyl) < 0.14)) &&
+            distCenterToCyl >= 1.18
+          ) {
             rp.state = "PICK";
             rp.stateTimer = 0;
             rp.avoidState = "NONE";
@@ -1648,6 +1735,55 @@ export default function KinetiXStage3D({
             rp.in4 = 0;
             rp.leftPwm = 0;
             rp.rightPwm = 0;
+          } else if (distCenterToCyl < 1.28) {
+            // 2. If chassis ever got too close to the cylinder, back up so the cylinder stays in front of the jaws (never under the car!)
+            rp.x -= Math.cos(angleToCyl) * (linSpd * 0.6) * dt;
+            rp.z -= Math.sin(angleToCyl) * (linSpd * 0.6) * dt;
+            rp.in1 = 0;
+            rp.in2 = 1;
+            rp.in3 = 0;
+            rp.in4 = 1;
+            rp.leftPwm = 120;
+            rp.rightPwm = 120;
+            rp.stepNum = 4;
+            rp.activeCodeLine = 3;
+            rp.subStageText =
+              "STANDOFF ALIGNMENT // BACKING UP TO POSITION JAWS OUTSIDE PAYLOAD";
+          } else if (distCenterToCyl <= 1.92) {
+            // 3. Inside Terminal Docking Ring: spin in place to face cylinder dead-on, then creep jaws forward!
+            if (Math.abs(angleErrToCyl) > 0.09) {
+              const dir = angleErrToCyl >= 0 ? 1 : -1;
+              const stepAng =
+                dir * Math.min(Math.abs(angleErrToCyl), turnSpd * 1.2 * dt);
+              rp.heading = wrap(rp.heading + stepAng);
+              rp.in1 = dir > 0 ? 1 : 0;
+              rp.in2 = dir > 0 ? 0 : 1;
+              rp.in3 = dir > 0 ? 0 : 1;
+              rp.in4 = dir > 0 ? 1 : 0;
+              rp.leftPwm = cur.motorPwm;
+              rp.rightPwm = cur.motorPwm;
+              rp.stepNum = 4;
+              rp.activeCodeLine = 3;
+              rp.subStageText =
+                "ALIGNING GRIPPER JAWS WITH PAYLOAD // ZERO-RADIUS SPIN";
+            } else {
+              rp.heading = angleToCyl;
+              rp.x += Math.cos(rp.heading) * (linSpd * 0.5) * dt;
+              rp.z += Math.sin(rp.heading) * (linSpd * 0.5) * dt;
+              rp.in1 = 1;
+              rp.in2 = 0;
+              rp.in3 = 1;
+              rp.in4 = 0;
+              rp.leftPwm = 115;
+              rp.rightPwm = 115;
+              rp.stepNum = 4;
+              rp.activeCodeLine = 3;
+              rp.subStageText = `CREEPING JAWS TO PAYLOAD // d = ${rp.distanceCm.toFixed(1)} cm (TARGET ≤ ${cur.pickDistCm} cm)`;
+            }
+          } else {
+            // 4. Outside Standoff Ring: navigate via A* to the Standoff Docking Point (1.50 units outside the cylinder!)
+            const standoffGoal = computeStandoffPoint(activePickPos);
+            navigateAStarToGoal(standoffGoal, true);
           }
         } else if (rp.state === "PICK") {
           rp.targetGripAngle = cur.gripClosedDeg;
@@ -1780,9 +1916,14 @@ export default function KinetiXStage3D({
         }
       }
 
-      // Solid Obstacle Collision Resolution (Guarantees the chassis NEVER clips inside any container, and triggers backup if touched!)
+      // Solid Multi-Circle Car Capsule Collision Resolution against ALL Obstacles & Cylinders on the Floor!
       if (cur.cameraMode !== "xray") {
-        const checkPts = [{ offset: 0.18, radius: 0.78 }];
+        // 3 circles covering rear axle (-0.42), center chassis (+0.15), and front axle (+0.72)
+        const checkPts = [
+          { offset: -0.42, radius: 0.74 },
+          { offset: 0.15, radius: 0.78 },
+          { offset: 0.72, radius: 0.72 },
+        ];
         cur.obstacles.forEach((obs) => {
           const cosA = Math.cos(-(obs.angle || 0));
           const sinA = Math.sin(-(obs.angle || 0));
@@ -1811,7 +1952,6 @@ export default function KinetiXStage3D({
               rp.x += pushLocalX * cosInv - pushLocalZ * sinInv;
               rp.z += pushLocalX * sinInv + pushLocalZ * cosInv;
 
-              // If auto mode ever contacts any obstacle, immediately back up and recompute A* path!
               if (
                 cur.mode === "auto" &&
                 cur.isRunning &&
@@ -1822,6 +1962,35 @@ export default function KinetiXStage3D({
                 rp.lastPlanSig = "";
                 rp.subStageText = `BUMPER CLEARANCE REFLEX (${obs.label}) // BACKING UP & REPLANNING A* ROUTE`;
               }
+            }
+          });
+        });
+
+        // Also prevent the car's chassis/wheels from EVER rolling over any unheld cylinder on the floor!
+        const floorCylinders = cur.multiSortEnabled
+          ? rp.multiPayloads
+              .filter((_, idx) => !(idx === rp.multiIdx && rp.hasCylinder))
+              .map((p) => ({ x: p.curX, z: p.curZ }))
+          : rp.hasCylinder
+          ? []
+          : [{ x: cur.cylinderPos.x, z: cur.cylinderPos.z }];
+
+        const chassisDisks = [
+          { offset: -0.42, minDist: 0.92 },
+          { offset: 0.1, minDist: 0.95 },
+          { offset: 0.55, minDist: 0.85 },
+        ];
+        floorCylinders.forEach((cyl) => {
+          chassisDisks.forEach((disk) => {
+            const cx = rp.x + Math.cos(rp.heading) * disk.offset;
+            const cz = rp.z + Math.sin(rp.heading) * disk.offset;
+            const dx = cx - cyl.x;
+            const dz = cz - cyl.z;
+            const d = Math.hypot(dx, dz);
+            if (d < disk.minDist && d > 0.001) {
+              const push = disk.minDist - d;
+              rp.x += (dx / d) * push;
+              rp.z += (dz / d) * push;
             }
           });
         });
