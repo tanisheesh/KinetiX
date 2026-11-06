@@ -35,12 +35,15 @@ src/
     sound-engine.ts          Multi-channel Web Audio synth (DC gearbox hum, reverse beep, servo & sonar)
 ```
 
-### `kinetix-stage-3d.tsx` (3D Physics, C-Space A\* Pathfinder & Dual-Viewport Engine)
+### `kinetix-stage-3d.tsx` (3D Physics, C-Space A\* Pathfinder, Weight Rejection & Dual-Viewport Engine)
 
-Maintains a persistent `THREE.Scene` and single `WebGLRenderer`. Each animation frame (`dt` clamped to `50 ms`):
+Loaded client-side via `next/dynamic(..., { ssr: false })`, maintaining a persistent `THREE.Scene` and single `WebGLRenderer`. Each animation frame (`dt` clamped to `50 ms`):
 1. Casts a 5-ray fan across the $15^\circ$ (`±7.5°`) ultrasonic cone from the front-most contour (`+1.66` with payload, `+1.02` unloaded), separating `obsCm` (obstacle range) from `dCm` (payload range).
-2. Evaluates either electrical fault overrides (`noCommonGnd`, `swapLeftPolarity`, `lowBatteryBrownout`), manual `WASD`/Touch teleop, or the 5-state Deterministic Finite Automaton (`SEARCH`, `PICK`, `CARRY`, `PLACE`, `DONE`) backed by a $57\times31$ 2D Occupancy Grid + C-Space A\* Pathfinder (`computeAStarPath` with adaptive radii `[1.28, 1.06, 0.86, 0.68]`, outward-only escape constraints, line-of-sight string-pulling, and a `BRAKE` → `REVERSE_CLEAR` → `SPIN_90` reflex).
-3. Enforces solid Oriented Bounding Box (OBB) collision resolution so the chassis never clips through any container, triggering immediate backup-and-replan recovery on contact.
+2. Evaluates either electrical fault overrides (`noCommonGnd`, `swapLeftPolarity`, `lowBatteryBrownout`), manual `WASD`/Touch teleop, or the 5-state Deterministic Finite Automaton (`SEARCH`, `PICK`, `CARRY`, `PLACE`, `DONE`) backed by:
+   - **Standoff Pre-Grasp Docking:** Computes a `1.50`-unit standoff coordinate outside the target cylinder so the rover parks in front of the payload, aligns its open jaws via zero-radius spin, and creeps forward without rolling its chassis over the cylinder.
+   - **Weight Capacity & Overload Rejection (`PICK`):** Compares `activePayloadWeightKg` against `maxLoadKg` (default `15.0 kg`). If overweight (e.g. `20.0 kg > 15.0 kg`), triggers a `985 mA` stall current spike, 3D chassis strain shudder, overload alarm audio, jaw release (`90°`), reverse clearance backup, and automatic A\* rerouting to the next valid payload (`10.0 kg`).
+   - **$57\times31$ 2D Occupancy Grid + C-Space A\* Pathfinder:** `computeAStarPath` with adaptive radii `[1.35, 1.15, 0.96]`, true signed distance inside/outside obstacles, outward-only escape constraints, line-of-sight string-pulling, and a `BRAKE` → `REVERSE_CLEAR` → `SPIN_90` reflex.
+3. Enforces 3-circle full-body Oriented Bounding Box (OBB) + floor-cylinder collision resolution (`offset: -0.42, +0.15, +0.72`).
 4. Renders the main camera across the full canvas, then clears depth on a bottom-right scissor rectangle to render `pipCamera` (`NOSE_CAM // POV`) in the same frame.
 
 ### `playground/page.tsx` (Telemetry, C++ Patcher & Blackbox Recorder)
@@ -79,8 +82,9 @@ Hosts the dedicated 5-stage pipeline bar, the 3D stage panel, the dual-channel H
 - `stepNum` (`1..12`) — Active step across Phase 1 (Search & Pick `01–06`) and Phase 2 (Carry & Place `07–12`).
 - `distanceCm` (`number`) & `echoUs` (`number`) — Real-time ultrasonic reading where $t_{\mu\text{s}} = \text{round}(d_{\text{cm}} \times 58)$.
 - `in1, in2, in3, in4` (`0 | 1`) & `leftPwm, rightPwm` (`0..255`) — Exact pin states driving the L298N dual full-bridge.
-- `motorCurrentMa` (`number`) & `batteryVoltage` (`number`) — Simulated load current (`35–920 mA`) and 2×18650 bus voltage sag (`7.40 V` down to `4.80 V` brownout).
-- `sortedCount` & `totalPayloads` — Progress counter in 3-Object Warehouse Sorting mode.
+- `motorCurrentMa` (`number`) & `batteryVoltage` (`number`) — Simulated load current (`35–985 mA`) and 2×18650 bus voltage sag (`7.40 V` down to `4.80 V` brownout).
+- `activePayloadWeightKg` (`number`), `maxLoadKg` (`number`), & `isOverloaded` (`boolean`) — Real-time load sensor reading (`10.0 kg` vs `20.0 kg`) and overload fault flag.
+- `sortedCount` & `totalPayloads` — Progress counter in `20KG vs 10KG DEMO` and `3-OBJECT SORT` modes.
 
 ---
 
@@ -96,7 +100,8 @@ Hosts the dedicated 5-stage pipeline bar, the 3D stage panel, the dual-channel H
 
 | Failure Mode | Behaviour |
 |---|---|
-| Obstacle contact or newly placed wall ahead | Solid OBB collider prevents clipping, triggers `0.48s` `REVERSE_CLEAR` backup, and recomputes a fresh C-Space A\* route |
+| Overweight payload (`weightKg > maxLoadKg`, e.g. `20 kg > 15 kg`) | `985 mA` servo stall spike, 3D chassis shudder, overload alarm, `90°` jaw release, `0.65s` reverse backup, and A\* reroute to next valid payload |
+| Obstacle contact or newly placed wall ahead | 3-circle OBB collider prevents clipping, triggers `0.48s` `REVERSE_CLEAR` backup, and recomputes a fresh C-Space A\* route |
 | Weak flashed gripper angle (`GRIP_CLOSED_DEG > 52°`) | Payload slips from jaws after `0.8s` of transport, drops at current world coordinates, and logs `PAYLOAD SLIP FAULT` |
 | Browser window resize / mobile orientation flip | Aspect-aware camera controller adjusts orbit radius (`14.8` portrait vs `10.8` landscape) and updates projection matrices |
 

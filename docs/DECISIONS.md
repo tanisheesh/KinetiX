@@ -50,6 +50,18 @@
 
 ---
 
+## Decision 5 — Standoff Pre-Grasp Docking & Torque-Based Overload Rejection
+
+**Context:** Navigating the rover's center coordinate `(rp.x, rp.z)` directly onto a payload coordinate causes the chassis and wheels to roll over the object before the front-mounted gripper (`+1.38` units ahead) can align. Additionally, the rover must reject objects whose mass exceeds the actuator torque limit (`MAX_LOAD_KG = 15.0 kg`, e.g., a `20.0 kg` heavy drum vs. a `10.0 kg` valid cylinder).
+
+**Decision:** Route A\* in `SEARCH` to a `1.50`-unit Standoff Pre-Grasp Point outside the cylinder while treating all floor cylinders as solid collision disks (`minDist: 0.95`). Once docked, execute a zero-radius alignment spin, creep the open jaws around the cylinder, and run a `0.9s` torque/load check in `PICK`: if `weightKg > maxLoadKg`, simulate a `985 mA` stall current spike + 3D chassis shudder, re-open the jaws to `90°`, mark the object `REJECTED`, back up `0.65s`, and automatically reroute to the next valid payload.
+
+**Reason:** Standoff docking guarantees only the gripper jaws ever contact the payload, while active overload rejection prevents the rover from stalling indefinitely on immovable objects and demonstrates closed-loop load protection.
+
+**Tradeoff:** Adds a `~0.9s` weighing/verification dwell during `PICK` before transitioning to `CARRY`.
+
+---
+
 ## What I'd do differently in v2
 
 - **Replace L298N with a MOSFET TB6612FNG Driver** — Eliminates the `~2.0 V` BJT heat loss of the L298N, extending 18650 battery runtime by ~25%.
