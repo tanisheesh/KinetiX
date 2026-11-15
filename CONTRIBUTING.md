@@ -1,6 +1,6 @@
 # Contributing to KinetiX
 
-Thanks for taking the time to contribute! Bug reports, fixes, docs improvements and feature ideas are all welcome.
+Thanks for taking the time to contribute! Bug reports, fixes, docs improvements, and feature ideas are all welcome.
 
 ---
 
@@ -22,9 +22,9 @@ Full instructions are in [docs/SETUP.md](docs/SETUP.md). Short version:
 ```bash
 git clone https://github.com/tanisheesh/KinetiX
 cd KinetiX
-npm install
+pnpm install --frozen-lockfile
 cp .env.example .env.local
-npm run dev
+pnpm dev
 ```
 
 ---
@@ -35,20 +35,22 @@ npm run dev
 
    | Branch prefix | Use for |
    |---|---|
-   | `feat/` | new feature, e.g. `feat/lidar-pointcloud` |
+   | `feat/` | new feature, e.g. `feat/webserial-bridge` |
    | `fix/` | bug fix, e.g. `fix/sonar-raycast-angle` |
    | `docs/` | documentation only |
    | `chore/` | tooling, config, dependencies |
    | `refactor/` | code change with no behaviour change |
 
-2. **Make your change.** Keep it focused, one feature or fix per PR.
+2. **Make your change.** Keep it focused, one feature or fix per PR, following [`AGENTS.md`](AGENTS.md).
 3. **Check it locally** before pushing:
 
    ```bash
-   npm run typecheck && npm run build
+   pnpm run typecheck && pnpm run build
    ```
 
-4. **Open a pull request** against `main`. The PR template will guide you.
+   *(If ESLint or Vitest/Playwright test scripts are configured on your branch, run `pnpm run lint && pnpm test` as well — CI runs all available scripts automatically.)*
+
+4. **Open a pull request** against `main`. Use a clean **past-tense** PR title (e.g. `Added unit tests for C-Space A* pathfinder`). The PR template will guide you.
 
 ---
 
@@ -70,8 +72,8 @@ Commits follow an emoji-prefixed format:
 | 🧪 | Tests | `🧪 cover sonar time-of-flight calculation` |
 | 🔨 | Chore / config | `🔨 bump node to 22 in ci` |
 | 👆 | Dependency update | `👆 upgrade next to 16.4` |
-| 🔒 | Security | `🔒 harden csp headers` |
-| 💀 | Code deletion | `💀 remove legacy vite config` |
+| 🔒 | Security | `🔒 harden vercel response headers` |
+| 💀 | Code deletion | `💀 remove legacy dependabot config` |
 
 Breaking changes add a line `🚨 BREAKING CHANGE: <what breaks>` in the commit body.
 
@@ -79,18 +81,17 @@ Breaking changes add a line `🚨 BREAKING CHANGE: <what breaks>` in the commit 
 
 ## Code style
 
-- Run `npm run typecheck` and `npm run build` before committing. CI runs the same checks.
-- Follow the existing file structure and patterns.
-- TypeScript: `kebab-case` file names in `src/components/` and `src/lib/`, `camelCase` variables and functions.
-- No secrets in code. Use env vars and add new ones to `.env.example`.
-- Update docs when behaviour, setup or env vars change.
+- Follow [`AGENTS.md`](AGENTS.md) on every edit (`kebab-case` file names in `src/components/`, `src/hooks/`, and `src/lib/`, `camelCase` variables/functions, named exports, zero `@ts-ignore` / empty `catch {}`, `<= 300` lines for new/refactored modules).
+- Run `pnpm run typecheck` and `pnpm run build` before committing. CI runs the same checks.
+- No secrets in code. Use env vars and add new ones to `.env.example` with empty values.
+- Update docs and `CHANGELOG.md` when behaviour, setup, or env vars change.
 
 ---
 
 ## Pull request checklist
 
 - [ ] Branch is up to date with `main`
-- [ ] Typecheck and production build pass locally
+- [ ] `pnpm run typecheck` and `pnpm run build` pass locally (plus lint/tests if present)
 - [ ] Commits follow the format above
 - [ ] Docs / `.env.example` / `CHANGELOG.md` updated if needed
 - [ ] PR description explains **what** and **why**

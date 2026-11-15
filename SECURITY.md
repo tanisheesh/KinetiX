@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Only the latest version on `main` (and the live deployment at https://kinetix.tanisheesh.in) receives security fixes.
+Only the latest version on `main` (and the live deployment at [https://kinetix.tanisheesh.in](https://kinetix.tanisheesh.in)) receives security fixes.
 
 | Version | Supported |
 |---|---|
@@ -22,7 +22,7 @@ Report privately through either channel:
 
 Please include:
 
-- What the issue is and where it lives (URL, endpoint, file)
+- What the issue is and where it lives (URL, route, file)
 - Steps to reproduce, or a minimal proof of concept
 - The impact you think it has
 - Any suggested fix (optional)
@@ -45,13 +45,14 @@ You'll be kept updated throughout, and credited in the release notes once it's f
 
 **In scope**
 
-- This repository's source code (`src/`, `docs/`, `.github/`)
-- The live deployment at https://kinetix.tanisheesh.in
+- This repository's source code (`src/`, `docs/`, `.github/`, `vercel.json`)
+- The live deployment at [https://kinetix.tanisheesh.in](https://kinetix.tanisheesh.in)
+- Client-side rendering safety, HTTP security headers, supply-chain dependencies, and firmware export integrity
 
 **Out of scope**
 
 - Vulnerabilities in third-party services (Vercel, GitHub). Report those to the vendor.
-- Denial-of-service, spam or volumetric attacks
+- Denial-of-service, spam, or volumetric attacks
 - Social engineering
 - Findings from automated scanners with no demonstrated impact
 

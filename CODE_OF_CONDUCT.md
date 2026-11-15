@@ -2,7 +2,7 @@
 
 ## Our pledge
 
-KinetiX is an open project and everyone is welcome to take part: through issues, pull requests, discussions or reviews. We want it to be a friendly, respectful and harassment-free place for everyone, regardless of age, background, experience level, gender identity, nationality, appearance, religion, disability or any other personal characteristic.
+KinetiX is an open project and everyone is welcome to take part: through issues, pull requests, discussions, or reviews. We want it to be a friendly, respectful, and harassment-free place for everyone, regardless of age, background, experience level, gender identity, nationality, appearance, religion, disability, or any other personal characteristic.
 
 ---
 
@@ -17,7 +17,7 @@ KinetiX is an open project and everyone is welcome to take part: through issues,
 ## Unacceptable behaviour
 
 - Harassment, insults, or personal or political attacks
-- Discriminatory jokes, language or imagery
+- Discriminatory jokes, language, or imagery
 - Sexualised language or unwelcome advances
 - Publishing anyone's private information without permission
 - Trolling, spamming, or deliberately derailing discussions
@@ -46,7 +46,7 @@ Depending on severity, the maintainer may:
 | 3. Temporary ban | Temporary removal from all project spaces |
 | 4. Permanent ban | Permanent removal from all project spaces |
 
-The maintainer's decision is final. Comments, commits, issues or PRs that violate this code may be edited or removed.
+The maintainer's decision is final. Comments, commits, issues, or PRs that violate this code may be edited or removed.
 
 ---
 
