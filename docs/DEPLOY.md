@@ -1,74 +1,105 @@
 # Deploying KinetiX
 
-> **Live:** [https://kinetix.tanisheesh.in](https://kinetix.tanisheesh.in) · **Host:** Vercel · **Auto-deploy:** on push to `main`
+> **Live:** [https://kinetix.tanisheesh.in](https://kinetix.tanisheesh.in) · **Host:** Vercel (`kinetix`) · **Auto-deploy:** on push to `main`
 
-For local development, see [SETUP.md](SETUP.md).
-
----
-
-## 1. Architecture in production
-
-| Piece | Runs on | Notes |
-|---|---|---|
-| Web app & 3D Digital Twin | Vercel | Next.js 16 static prerendered routes + Edge OG generation |
-| DNS | GoDaddy | `kinetix.tanisheesh.in` → CNAME to `c5eae3d32ea1a030.vercel-dns-017.com.` |
+For local development and physical Arduino flashing, see [SETUP.md](SETUP.md).
 
 ---
 
-## 2. Environment variables
+## 1. Production Topology & Resource Limits
 
-Set these in the Vercel dashboard (optional, defaults are built in). Names are in [`.env.example`](../.env.example).
-
-| Variable | Required | Where it's set |
-|---|---|---|
-| `NEXT_PUBLIC_SITE_URL` | ❌ | Vercel → Project → Settings → Environment Variables |
-
----
-
-## 3. First-time deploy (Vercel)
-
-1. [vercel.com/new](https://vercel.com/new) → import `tanisheesh/KinetiX`
-2. Framework preset: `Next.js` · Root directory: `./`
-3. Click **Deploy**. Every push to `main` automatically builds and deploys to production, and every pull request gets an isolated preview URL.
+| Component | Host / Service | Region & Runtime | Configured Limits / Quotas |
+|---|---|---|---|
+| Web App & 3D Twin | Vercel (`kinetix`) | Global Edge CDN (`bom1` default) · Node `22.x` | Static prerendered routes + Next/OG image generation · docs-only builds ignored |
+| Security Headers | Vercel Edge (`vercel.json`) | `/(.*)` route match | `nosniff`, `DENY` framing, HSTS (`2 yrs`), `Permissions-Policy`, `Referrer-Policy` |
+| DNS & TLS | GoDaddy → Vercel | `kinetix.tanisheesh.in` | CNAME + automatic Vercel TLS provisioning |
 
 ---
 
-## 4. Custom domain
+## 2. Production Environment Variables
 
-`kinetix.tanisheesh.in` is wired with the setup toolkit:
+All core simulation and firmware features work with zero required environment secrets. Key names live in [`.env.example`](../.env.example).
+
+| Variable | Required | Host Location | Rotation / Sensitivity |
+|---|---|---|---|
+| `NEXT_PUBLIC_SITE_URL` | ❌ | Vercel → Project (`kinetix`) → Settings → Environment Variables | Public — optional override (defaults to `https://kinetix.tanisheesh.in`) |
+
+> Changing an env var does **not** update already-built static deployments — trigger a redeploy after editing env vars.
+
+---
+
+## 3. First-Time Deploy & Vercel Hardening
+
+1. Connect `tanisheesh/KinetiX` in [vercel.com/new](https://vercel.com/new) (Framework preset: `Next.js`, Root directory: `./`).
+2. Every push to `main` automatically deploys to production; pull requests receive isolated preview URLs.
+3. Apply production security, region, and docs-only build ignore settings via the setup toolkit:
+
+   ```powershell
+   ..\setup-toolkit\scripts\setup-vercel-project.ps1 -Project "kinetix" -RepoPath . -Region "bom1" -IgnoreDocsOnlyBuilds
+   ```
+
+---
+
+## 4. Custom Domain & Security Headers
+
+`kinetix.tanisheesh.in` is wired via:
 
 ```powershell
-.\scripts\setup-subdomain.ps1 -Subdomain "kinetix" -Platform Vercel -VercelProject "kinetix"
+..\setup-toolkit\scripts\setup-subdomain.ps1 -Subdomain "kinetix" -Platform Vercel -VercelProject "kinetix"
 ```
 
-Manual fallback: add `kinetix.tanisheesh.in` in the Vercel project domains tab, then create a GoDaddy CNAME `kinetix` → `cname.vercel-dns.com`. HTTPS certificates are provisioned automatically once DNS resolves (2–10 min).
+- **Manual DNS fallback:** Add `kinetix.tanisheesh.in` in Vercel → Project → Settings → Domains, then point GoDaddy CNAME `kinetix` to `cname.vercel-dns.com` (TTL `600s`; propagation `2–10 min`).
+- **Security headers (`vercel.json`):** Enforces `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`, and `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload`.
 
 ---
 
-## 5. Verify a deploy
+## 5. Post-Deploy Smoke Verification
 
-- [ ] `https://kinetix.tanisheesh.in` loads with no console errors
-- [ ] `/playground` renders the 60 FPS 3D Digital Twin stage, PiP Nose-Cam, C++ Firmware Patcher, oscilloscope, and Blackbox Strip Chart
-- [ ] `/hardware` renders the 9-module datasheets, interactive 4-fault wiring schematic, and `.ino` download
-- [ ] `/how-it-works` renders the mathematical equations, truth tables, and architectural design rationale
-- [ ] `/opengraph-image` and `/sitemap.xml` resolve cleanly
+Run immediately after production deploys:
+
+```bash
+# 1. Verify all App Router & metadata endpoints return HTTP 200
+for path in / /playground /hardware /how-it-works /sitemap.xml /robots.txt; do
+  echo "$path -> $(curl -s -o /dev/null -w "%{http_code}" https://kinetix.tanisheesh.in$path)"
+done
+
+# 2. Verify Edge security headers from vercel.json are active
+curl -sI https://kinetix.tanisheesh.in | grep -iE "x-frame-options|x-content-type-options|strict-transport-security|referrer-policy|permissions-policy"
+```
+
+- [ ] `https://kinetix.tanisheesh.in` loads cleanly on mobile (`375px`) and desktop (`1280px`) with zero console errors
+- [ ] `/playground` renders the 60 Hz 3D Digital Twin stage, PiP `NOSE_CAM`, C++ Firmware Patcher, oscilloscope, and 120-sample strip chart
+- [ ] `/hardware` renders the 6-subsystem datasheets, 4-fault Common Ground schematic, and `.ino` download
+- [ ] `/how-it-works` renders the 5 mathematical equations, truth tables, and v2 roadmap
+- [ ] `/opengraph-image` and `/sitemap.xml` return `200`
 
 ---
 
-## 6. Rollback
+## 6. Rollback Procedure
 
-| Host | How |
+| Layer | Rollback Action |
 |---|---|
-| Vercel | Dashboard → Deployments → pick the last good deployment → **Promote to Production** (or `vercel rollback`) |
+| **Vercel** | Vercel Dashboard → `kinetix` → Deployments → select last healthy deploy → **Promote to Production** (or `vercel rollback`) |
 
-After rolling back, note it in a commit or PR so the next push doesn't silently re-ship the broken version.
+> Always record any manual production rollback (target commit SHA + reason) in a commit or PR so the next push to `main` does not silently re-ship the broken build.
 
 ---
 
-## 7. Monitoring & logs
+## 7. Incident & Quota Runbooks
 
-- **Logs:** Vercel → Project → Logs
-- **Dependencies:** Dependabot opens weekly update PRs on Monday 06:00 IST and a maintenance report runs every Monday at 10:00 IST (see `.github/workflows/`).
+| Incident | Immediate Action |
+|---|---|
+| **Broken production build / WebGL runtime crash** | Promote previous healthy deploy in Vercel immediately; reproduce locally via `pnpm run typecheck && pnpm run build` and check dynamic `ssr: false` guards |
+| **Security headers missing on custom domain** | Verify `vercel.json` is tracked on `main` and redeploy without cache; re-check with `curl -sI https://kinetix.tanisheesh.in` |
+| **Suspected secret leak** | Revoke/rotate any leaked token at provider immediately -> scrub/rotate env var -> verify `secret-scan.yml` (Gitleaks) & GitHub Secret Scanning clear |
+| **Custom domain / TLS cert failure** | Inspect Vercel Domains panel + GoDaddy CNAME `kinetix`; re-run `setup-subdomain.ps1` if CNAME drifted |
+
+---
+
+## 8. Monitoring & Automated Maintenance
+
+- **Logs & Analytics:** Vercel → `kinetix` → Logs & Deployments
+- **Automated Hygiene:** Renovate (`Yantra [bot]` via `renovate.yml` + `dependency-auto-merge.yml`), CodeQL (`codeql.yml`), Gitleaks (`secret-scan.yml`), Dependency Review (`dependency-review.yml`), and Monday 10:00 IST Maintenance Report (`maintenance-report.yml`) run via `.github/workflows/`.
 
 ---
 
