@@ -10,7 +10,13 @@
 
 <p align="center">
   <a href="https://kinetix.tanisheesh.in">
-    <img src="https://img.shields.io/badge/live_demo-FFB300-FFB300?style=flat-square" alt="Live Demo">
+    <img src="https://img.shields.io/badge/live_demo-visit-FFB300?style=flat-square" alt="Live Demo">
+  </a>
+  <a href="https://github.com/tanisheesh/KinetiX/actions/workflows/ci.yml">
+    <img src="https://github.com/tanisheesh/KinetiX/actions/workflows/ci.yml/badge.svg" alt="CI">
+  </a>
+  <a href="https://github.com/tanisheesh/KinetiX/actions/workflows/codeql.yml">
+    <img src="https://github.com/tanisheesh/KinetiX/actions/workflows/codeql.yml/badge.svg" alt="CodeQL">
   </a>
   <img src="https://img.shields.io/badge/Next.js-black?style=flat-square&logo=next.js" alt="Next.js">
   <img src="https://img.shields.io/badge/React-61DAFB?style=flat-square&logo=react&logoColor=black" alt="React">
@@ -25,7 +31,7 @@
 
 ## What is KinetiX?
 
-Fixed-path line followers and open-loop timer bots fail the moment an obstacle blocks their corridor, while physical breadboard prototypes suffer from loose jumper wires and brownout resets during live demonstrations. **KinetiX** is a real-time **3D WebGL Digital Twin, In-Browser C++ Firmware Patcher, and Hardware Telemetry Workbench** alongside production **Arduino UNO (ATmega328P)** firmware for an autonomous obstacle-avoiding pick-and-place rover. It simulates a 5-state Deterministic Finite Automaton (`SEARCH` → `PICK` → `CARRY` → `PLACE` → `DONE`), 40 kHz ultrasonic time-of-flight raycasting ($d = t / 58\text{ cm}$), a **2D Occupancy Grid ($57\times31$) + C-Space A\* Pathfinder** with line-of-sight string-pulling and reverse-clear reflexes, solid Oriented Bounding Box (OBB) collision physics, L298N dual full-bridge switching ($S_1\text{–}S_4$), and 50 Hz closed-loop SG90 servo manipulation at 60 FPS.
+Fixed-path line followers and open-loop timer bots fail the moment an obstacle blocks their corridor, while physical breadboard prototypes hide microcontroller state transitions and suffer from jumper disconnects or brownout resets. **KinetiX** pairs production **Arduino UNO (ATmega328P)** firmware with a deterministic **3D WebGL Digital Twin, In-Browser C++ Firmware Patcher, and Pin-Level Telemetry Workbench** simulating a 5-state Finite State Machine (`SEARCH` → `PICK` → `CARRY` → `PLACE` → `DONE`), 40 kHz acoustic raycasting ($d = t / 58\text{ cm}$), C-Space A\* pathfinding, L298N full-bridge switching, and 50 Hz SG90 servo manipulation in real time.
 
 > **Live demo →** [https://kinetix.tanisheesh.in](https://kinetix.tanisheesh.in)
 
@@ -33,10 +39,23 @@ Fixed-path line followers and open-loop timer bots fail the moment an obstacle b
 
 ## What you get
 
-- **Interactive 3D WebGL Digital Twin & A\* Maze Stage** — procedural 3D RM-01 rover with real-time C-Space A\* pathfinding (`#00e676` floor route overlay), standoff pre-grasp docking (`1.50` units outside payloads), **20 kg vs. 10 kg Overload Torque Rejection (`MAX_LOAD_KG`)**, dual-viewport Picture-in-Picture (`NOSE_CAM // POV`), A/B Ghost Fixed-Path Race comparison, 3-Object Warehouse Color Sorting, Click-to-Draw Maze Builder, Exploded 3D X-Ray hardware inspection, and live YOLOv8 / 360° ROS SLAM overlays.
-- **In-Browser C++ Firmware Patcher, Oscilloscope & Multi-Channel Audio Synth** — modify control constants (`MAX_LOAD_KG`, `PICK_DIST_CM`, `AVOID_DIST_CM`, `GRIP_CLOSED_DEG`, `SPIN_DELAY_MS`, `CRUISE_PWM`) and flash them live to the virtual ATmega328P while monitoring the dual-trace HC-SR04 oscilloscope (`CH1: TRIG D10`, `CH2: ECHO D11`), L298N H-Bridge switch matrix ($S_1\text{–}S_4$), and compressor-boosted multi-channel Web Audio API synthesizer (1:48 DC gearbox harmonics, `1120 Hz` reverse beeper, brake screech, `340 ms` SG90 gear zip, overload stall groan, and sonar pings).
-- **Interactive Electrical Fault Injector & Datasheet Workbench** — inject live hardware faults (`Disconnect Common GND`, `Swap IN1↔IN2 Polarity`, `4.8V Battery Sag Brownout`, `Direct GPIO Overcurrent`) across both the 3D rover and the Star/Bus Common Ground SVG schematic, or download the production `.ino` sketch.
-- **120-Sample Blackbox Strip Chart & Kinematics Specification** — real-time 3-channel rolling strip chart (`Sonar d(cm)`, `Motor Current I(mA)`, `Battery Bus V(volts)`) with one-click `.CSV` / `.JSON` telemetry export alongside complete mechatronic equations and truth tables.
+- **3D WebGL Digital Twin & C-Space A\* Maze Stage** — Procedural RM-01 rover with `57×31` C-Space A\* route overlay, `1.50`-unit standoff docking, `20 kg vs. 10 kg` overload torque rejection, dual-viewport `NOSE_CAM // POV` PiP, A/B Ghost Race, 3-Object Sorting, Click-to-Draw Maze Builder, Exploded X-Ray mode, and optional YOLOv8 / 360° SLAM overlays.
+- **In-Browser C++ Patcher, Oscilloscope & Mechatronic Synth** — Live-patch `MAX_LOAD_KG`, `PICK_DIST_CM`, `AVOID_DIST_CM`, `GRIP_CLOSED_DEG`, `SPIN_DELAY_MS`, and `CRUISE_PWM` while monitoring the dual-trace HC-SR04 oscilloscope (`TRIG D10`, `ECHO D11`), L298N switch matrix ($S_1\text{–}S_4$), and 3-layer Web Audio synthesizer.
+- **Interactive Wiring Fault Injector & Datasheet Lab** — Inject `Disconnect Common GND`, `Swap IN1↔IN2`, `4.8V Brownout`, and `Direct GPIO Overcurrent` across the 3D stage and Star/Bus schematic, or export the production `KinetiX_Autonomous_Pick_Place.ino` sketch.
+- **120-Sample Blackbox Strip Chart & Kinematics Reference** — Real-time rolling strip chart (`Sonar d(cm)`, `Motor I(mA)`, `Battery V`) with `.CSV`/`.JSON` export alongside complete governing equations and truth tables.
+
+---
+
+## By the numbers
+
+| Metric | Value | Source |
+|---|---|---|
+| A\* Occupancy Grid & C-Space | `57 × 31` (`1,767` cells, `0.25`-unit step, radii `[1.35, 1.15, 0.96]`) | `src/components/kinetix-stage-3d.tsx` |
+| Ultrasonic Raycaster & ToF | `5` rays across `15°` cone (`±7.5°`), `2–120 cm` sim (`d = t / 58`) | `src/components/kinetix-stage-3d.tsx` |
+| Render Loop & Telemetry Sync | `60 Hz` (`dt ≤ 50 ms`) physics · `15 Hz` (`> 65 ms`) UI push | `src/components/kinetix-stage-3d.tsx` |
+| Blackbox & Path Ring Buffers | `120` strip-chart samples · `350` trail pts · `120` A\* route pts | `src/app/playground/page.tsx` |
+| Subsystems, FSM & Faults | `5` DFA states · `12` steps · `6` BOM modules · `4` wiring faults | `src/lib/kinetix-data.ts`, `hardware/page.tsx` |
+| Arduino Firmware Cadence | `25 Hz` loop (`40 ms` delay) · `30 ms` echo timeout · `9600` baud | `src/lib/kinetix-data.ts` |
 
 ---
 
@@ -44,27 +63,27 @@ Fixed-path line followers and open-loop timer bots fail the moment an obstacle b
 
 | Layer | Tech |
 |---|---|
-| Frontend & Digital Twin | Next.js 16 (App Router) · React 19 · TypeScript · Three.js (r186 WebGL) · Tailwind CSS 4 |
-| Audio & Telemetry | Web Audio API Procedural Synthesizer · HTML5 Canvas Oscilloscope & Strip Chart |
-| Embedded Firmware | C/C++ (`Arduino.h`, `Servo.h`) · ATmega328P (16 MHz) · 5-State Deterministic Finite Automaton |
-| Mechatronics & Sensing | HC-SR04 (40 kHz Sonar) · L298N Dual Full-Bridge · 1:48 Geared DC Motors · SG90 Micro Servo |
-| Infra & Deployment | Vercel · GitHub Actions CI · Dependabot Auto-Merge |
+| Frontend & Digital Twin | Next.js 16.4 (App Router) · React 19.3 · TypeScript 7.0 · Three.js r187 · Tailwind CSS 4.3 |
+| Audio & Telemetry | Web Audio API (`DynamicsCompressorNode` + 3-Layer Synth) · HTML5 Canvas Oscilloscope & Strip Chart |
+| Embedded Firmware | Arduino C/C++ (`Arduino.h`, `Servo.h`) · ATmega328P (16 MHz) · 5-State DFA |
+| Mechatronics & Sensing | HC-SR04 (40 kHz Sonar) · L298N Dual Full-Bridge · 1:48 Geared DC Motors · SG90 Servo |
+| Infra & Security | Vercel Edge CDN (`vercel.json` CSP/HSTS headers) · GitHub Actions CI · CodeQL · Gitleaks · Renovate |
 
 ---
 
 ## Engineering Decisions
 
-**Why isolate the DC motors behind an L298N Dual H-Bridge instead of driving them from Arduino GPIO pins?**
-Each ATmega328P digital pin safely sources at most ~20 mA at 5 V, whereas a 1:48 geared DC motor draws 150–500 mA continuously and over 1 A at stall while requiring 6–12 V. Furthermore, switching inductive motor windings produces reverse back-EMF voltage spikes; the L298N isolates the 5 V logic domain from the 7.4 V battery bus and provides four-quadrant diagonal switching ($S_1+S_4$ forward, $S_3+S_2$ reverse, $S_2+S_4$ low-side active braking).
+**Why isolate the DC motors behind an L298N Dual H-Bridge instead of Arduino GPIO pins?**
+ATmega328P digital pins source at most ~20 mA at 5 V, whereas a 1:48 geared DC motor draws 150–500 mA continuously and >1 A at stall at 6–12 V while generating inductive back-EMF spikes. The L298N isolates the 5 V logic domain from the 7.4 V Li-ion bus via four-quadrant diagonal switching ($S_1+S_4$ forward, $S_3+S_2$ reverse, $S_2+S_4$ dynamic brake).
 
-**Why combine C-Space A\* Grid Pathfinding ($57\times31$) with a Reverse-Clear Reflex and Line-of-Sight String-Pulling?**
-A differential-drive rover spans roughly $5 \times 3.5$ arena grid squares (`1.28` world-unit clearance radius including its front gripper). Naive single-obstacle reactive turns get trapped when users construct multi-wall custom mazes. Inflating obstacles in Configuration Space (`radii = [1.28, 1.06, 0.86, 0.68]`) with a soft proximity cost halo, executing a `0.48s` `REVERSE_CLEAR` backup before zero-radius spins, and smoothing the 8-directional A\* path via line-of-sight string-pulling guarantees collision-free navigation through arbitrary user-drawn mazes.
+**Why combine a `57×31` C-Space A\* grid with `REVERSE_CLEAR` and line-of-sight string-pulling?**
+At `~2.6 × 1.65` world units including its front gripper, the RM-01 rover gets trapped by reactive single-obstacle turns in multi-wall user mazes. Inflating obstacles with adaptive radii `[1.35, 1.15, 0.96]`, backing up `0.48s` (`REVERSE_CLEAR`) before zero-radius spins, and string-pulling at `0.95 × radius` keeps trajectories collision-free down corridor centers.
 
-**Why render the Picture-in-Picture (`NOSE_CAM`) via `WebGLRenderer.setViewport` / `setScissor` on a single canvas?**
-Spawning a second `THREE.WebGLRenderer` instance duplicates GPU scene buffers and halves mobile frame rates. Multiplexing both the primary orbit camera and the front-mounted HC-SR04 POV camera onto a single WebGL context using scissor-rect passes delivers a real-time dual-camera ground control station with zero additional memory overhead.
+**Why multiplex `NOSE_CAM // POV` via `setViewport` / `setScissor` on one WebGL canvas?**
+Spawning a second `THREE.WebGLRenderer` duplicates scene geometries, textures, and `2048×2048` shadow maps in GPU memory. Scissor multiplexing renders the secondary `196×128 px` POV feed from the exact same scene graph with negligible GPU overhead.
 
 **What would you do differently in v2?**
-Replace single-axis ultrasonic ranging and open-loop target timing with a companion Raspberry Pi / Jetson running YOLOv8 object detection and 360° 2D LiDAR + quadrature wheel encoders under ROS 2 Nav2 SLAM to eliminate acoustic absorption blind spots on soft/angled surfaces and wheel-slip drift.
+Replace the L298N BJT driver (`~2.0 V` heat drop) with a MOSFET `TB6612FNG`, add quadrature wheel encoders + MPU6050 IMU to eliminate open-loop slip drift, and pair an onboard Raspberry Pi / ESP32-CAM running YOLOv8 + 360° 2D LiDAR to cover acoustic blind spots on soft foam and angled walls.
 
 ---
 
@@ -72,14 +91,14 @@ Replace single-axis ultrasonic ranging and open-loop target timing with a compan
 
 | Document | Description |
 |---|---|
-| [PRD](docs/PRD.md) | Product requirements — problem statement, goals, user stories, non-goals |
-| [Architecture](docs/ARCHITECTURE.md) | System design, 3D physics loop, dual-viewport rendering & data flow |
-| [Decisions](docs/DECISIONS.md) | Every major mechatronic and software decision and why |
-| [Setup](docs/SETUP.md) | Local dev setup and Arduino UNO firmware flashing guide |
-| [Deploy](docs/DEPLOY.md) | Production deployment on Vercel, custom domain, rollback |
-| [Contributing](CONTRIBUTING.md) | How to propose changes |
-| [Changelog](CHANGELOG.md) | What changed in each release |
-| [Security](SECURITY.md) | How to report a vulnerability |
+| [PRD](docs/PRD.md) | Product requirements — quantified impact, acceptance criteria, edge cases, unit economics |
+| [Architecture](docs/ARCHITECTURE.md) | System topology (Mermaid), 3D/audio/firmware pipelines, state model, scale ceilings |
+| [Decisions](docs/DECISIONS.md) | Technical ADRs — comparison matrices, tradeoffs, and reversal triggers |
+| [Setup](docs/SETUP.md) | Local `pnpm` dev setup, env var matrix, Arduino UNO flashing, and troubleshooting |
+| [Deploy](docs/DEPLOY.md) | Vercel production topology, security headers, smoke checks, and rollback runbooks |
+| [Contributing](CONTRIBUTING.md) | Branching, emoji commit style, and PR checklist |
+| [Changelog](CHANGELOG.md) | Release history mapped to commit history |
+| [Security](SECURITY.md) | Vulnerability reporting policy and security scope |
 
 ---
 
